@@ -24,6 +24,7 @@ let panY = 0;
 let isPanning = false;
 let panStart = null;
 let spaceDown = false;
+let lastMouseDownTime = 0;
 
 // Canvas Context
 let canvas = null;
@@ -283,7 +284,13 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // Capture-phase: fires BEFORE canvas.mousedown so isPanning is set in time
+  // for canvas's existing guard `if (isPanning || spaceDown) return` to work.
   canvasWrapper.addEventListener("mousedown", (e) => {
+    const now = Date.now();
+    const isRapidSecondClick = (now - lastMouseDownTime) < 300;
+    lastMouseDownTime = now;
+
     if (spaceDown) {
       isPanning = true;
       panStart = { x: e.clientX - panX, y: e.clientY - panY };
@@ -291,7 +298,23 @@ document.addEventListener("DOMContentLoaded", () => {
       e.preventDefault();
       return;
     }
-  });
+
+    // Double-click + drag on empty canvas space to pan.
+    // Because this listener runs in capture phase, isPanning is set before
+    // canvas.mousedown fires, so the canvas guard bails out cleanly —
+    // ADD mode is not accidentally triggered and SELECT logic is not run.
+    if (isRapidSecondClick && bgImage.src) {
+      const mousePos = getMousePosOnImage(e);
+      const boxIdx = getBoxIndexAtPosition(mousePos.x, mousePos.y);
+      if (boxIdx === null) {
+        isPanning = true;
+        panStart = { x: e.clientX - panX, y: e.clientY - panY };
+        canvasWrapper.style.cursor = "grabbing";
+        e.preventDefault();
+        return;
+      }
+    }
+  }, { capture: true });
 
   canvasWrapper.addEventListener("mousemove", (e) => {
     if (isPanning && panStart) {
@@ -749,6 +772,7 @@ document.addEventListener("DOMContentLoaded", () => {
     console.log(`[DEBUG] selectPage: Rendering Page ${pageObj.page_number} on Canvas.`);
     activePageNum = pageObj.page_number;
     activePageObj = pageObj;
+    lastMouseDownTime = 0; // reset so first click on new page is never misread as dblclick
     
     // Set controls states
     detectBtn.removeAttribute("disabled");
@@ -795,6 +819,7 @@ document.addEventListener("DOMContentLoaded", () => {
     activePageObj = null;
     windows = [];
     activeBoxIndex = null;
+    lastMouseDownTime = 0;
     bgImage.src = "";
     
     detectBtn.setAttribute("disabled", "true");

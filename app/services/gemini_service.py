@@ -240,5 +240,148 @@ def detect_windows(image_path: str, few_shot_history: list = None) -> list[dict]
                 raise e
 
 
+def detect_windows_in_region(image_path: str, region: list, few_shot_history: list = None) -> list[dict]:
+    """
+    Crop the target page image to the requested region and run Gemini detection
+    on that crop. Returned boxes are adjusted to the original full-image coordinate
+    space and appended back to the current page's window list.
+    """
+    print(f"[DEBUG] detect_windows_in_region: Cropping region {region} from '{image_path}'")
+
+    if not os.path.exists(image_path):
+        print(f"[ERROR] detect_windows_in_region: Target image not found at '{image_path}'")
+        raise FileNotFoundError(f"Image file not found: {image_path}")
+
+    if len(region) != 4:
+        raise ValueError("Region must be [ymin, xmin, ymax, xmax].")
+
+    ymin, xmin, ymax, xmax = region
+    if xmin >= xmax or ymin >= ymax:
+        raise ValueError("Invalid region: zero or negative area.")
+
+    img = Image.open(image_path)
+    crop = img.crop((xmin, ymin, xmax, ymax))
+    crop_width, crop_height = crop.size
+
+    max_dim = 1600
+    scaled_crop = crop.copy()
+    if crop_width > max_dim or crop_height > max_dim:
+        scaled_crop.thumbnail((max_dim, max_dim))
+        print(f"[DEBUG] detect_windows_in_region: Scaled crop for API request to {scaled_crop.size[0]}x{scaled_crop.size[1]} px")
+
+    contents = []
+    if few_shot_history:
+        print(f"[DEBUG] detect_windows_in_region: Constructing few-shot visual history with {len(few_shot_history)} page examples.")
+        for idx, turn in enumerate(few_shot_history):
+            try:
+                hist_img = Image.open(turn["image_path"])
+                if hist_img.width > max_dim or hist_img.height > max_dim:
+                    hist_img.thumbnail((max_dim, max_dim))
+
+                hist_windows = []
+                hist_w, hist_h = turn["width"], turn["height"]
+                for win in turn.get("windows", []):
+                    box_px = win["box_px"]
+                    ymin_norm = int(clip_val((box_px[0] / hist_h) * 1000, 0, 1000))
+                    xmin_norm = int(clip_val((box_px[1] / hist_w) * 1000, 0, 1000))
+                    ymax_norm = int(clip_val((box_px[2] / hist_h) * 1000, 0, 1000))
+                    xmax_norm = int(clip_val((box_px[3] / hist_w) * 1000, 0, 1000))
+                    hist_windows.append({
+                        "label": win["label"],
+                        "box_2d": [ymin_norm, xmin_norm, ymax_norm, xmax_norm]
+                    })
+
+                hist_bytes = _pil_to_bytes(hist_img)
+                contents.append(
+                    types.Content(
+                        role="user",
+                        parts=[
+                            types.Part.from_bytes(data=hist_bytes, mime_type="image/jpeg"),
+                            types.Part.from_text(text="Detect windows on this floor plan and return them in JSON format."),
+                        ]
+                    )
+                )
+                contents.append(
+                    types.Content(
+                        role="model",
+                        parts=[types.Part.from_text(text=json.dumps({"windows": hist_windows}))]
+                    )
+                )
+                print(f"[DEBUG] detect_windows_in_region: History turn {idx+1} appended with {len(hist_windows)} corrected window boxes.")
+            except Exception as hist_err:
+                print(f"[WARNING] detect_windows_in_region: Skipping history turn {idx+1} due to loading error: {str(hist_err)}")
+
+    scaled_bytes = _pil_to_bytes(scaled_crop)
+    contents.append(
+        types.Content(
+            role="user",
+            parts=[
+                types.Part.from_bytes(data=scaled_bytes, mime_type="image/jpeg"),
+                types.Part.from_text(text="Detect windows on this cropped floor plan region. Return the window bounding boxes in normalized coordinates [ymin, xmin, ymax, xmax] from 0 to 1000."),
+            ]
+        )
+    )
+
+    print(f"[DEBUG] detect_windows_in_region: Sending region crop to Gemini with {len(contents)} turn(s).")
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError("Gemini API key is not configured in environment variables. Please check your .env file.")
+
+    client = genai.Client(api_key=api_key)
+    generation_config = types.GenerateContentConfig(
+        system_instruction=SYSTEM_INSTRUCTION,
+        response_mime_type="application/json",
+        response_schema=JSON_RESPONSE_SCHEMA,
+        temperature=0.1,
+    )
+
+    max_retries = 3
+    retry_delay = 2
+    for attempt in range(max_retries):
+        try:
+            start_time = time.time()
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=contents,
+                config=generation_config,
+            )
+            latency = time.time() - start_time
+            print(f"[DEBUG] detect_windows_in_region: API request succeeded in {latency:.2f} seconds.")
+
+            response_text = response.text
+            print(f"[DEBUG] detect_windows_in_region: Raw response string (first 500 chars): {response_text[:500]}")
+            data = json.loads(response_text)
+            detected_windows = data.get("windows", [])
+
+            final_windows = []
+            for win in detected_windows:
+                box_2d = win.get("box_2d", [])
+                if len(box_2d) == 4:
+                    ymin_norm, xmin_norm, ymax_norm, xmax_norm = box_2d
+                    ymin_px = int((ymin_norm / 1000.0) * crop_height) + ymin
+                    xmin_px = int((xmin_norm / 1000.0) * crop_width) + xmin
+                    ymax_px = int((ymax_norm / 1000.0) * crop_height) + ymin
+                    xmax_px = int((xmax_norm / 1000.0) * crop_width) + xmin
+                    final_windows.append({
+                        "label": win.get("label", "W"),
+                        "box_px": [ymin_px, xmin_px, ymax_px, xmax_px]
+                    })
+                else:
+                    print(f"[WARNING] detect_windows_in_region: Skipping malformed box_2d entry: {box_2d}")
+
+            print(f"[DEBUG] detect_windows_in_region: Returning {len(final_windows)} windows from region crop.")
+            return final_windows
+        except Exception as e:
+            print(f"[WARNING] detect_windows_in_region: Attempt {attempt + 1} failed. Error: {str(e)}")
+            if attempt < max_retries - 1:
+                print(f"[DEBUG] detect_windows_in_region: Waiting {retry_delay} seconds before retrying...")
+                time.sleep(retry_delay)
+                retry_delay *= 2
+            else:
+                print("[ERROR] detect_windows_in_region: All Gemini API retries exhausted.")
+                raise e
+
+
 def clip_val(val, min_val, max_val):
     return max(min(val, max_val), min_val)

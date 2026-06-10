@@ -302,12 +302,13 @@ async def run_detection(project_id: str, page_num: int):
         
     target_image_path = os.path.join(project_path, target_page["image_name"])
     
-    # 4. Compile Few-Shot History from previous pages with 'user_corrected=True'
+    # 4. Compile Few-Shot History from other corrected pages in the same project.
     few_shot_history = []
-    print(f"[DEBUG] run_detection: Gathering few-shot learning history from pages prior to page {page_num}...")
+    print(f"[DEBUG] run_detection: Gathering few-shot learning history from other user-corrected pages...")
     for page in pages:
-        # Only check prior pages that have been manually corrected/reviewed
-        if page.get("page_number") < page_num and page.get("user_corrected") == True:
+        if page.get("page_number") == page_num:
+            continue
+        if page.get("user_corrected") == True:
             hist_image_path = os.path.join(project_path, page["image_name"])
             print(f"[DEBUG] run_detection: Page {page['page_number']} qualifies as few-shot example. Adding to query history.")
             few_shot_history.append({
@@ -425,10 +426,12 @@ async def run_region_detection(project_id: str, page_num: int, payload: DetectRe
 
     target_image_path = os.path.join(project_path, target_page["image_name"])
 
-    # Build few-shot history from prior user-corrected pages.
+    # Build few-shot history from other user-corrected pages in the same project.
     few_shot_history = []
     for page in project_meta.get("pages", []):
-        if page.get("page_number") < page_num and page.get("user_corrected") == True:
+        if page.get("page_number") == page_num:
+            continue
+        if page.get("user_corrected") == True:
             hist_image_path = os.path.join(project_path, page["image_name"])
             few_shot_history.append({
                 "image_path": hist_image_path,

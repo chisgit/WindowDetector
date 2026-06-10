@@ -53,6 +53,42 @@ def append_correction_log(project_path: str, event: dict):
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(json.dumps(event) + "\n")
 
+
+def _compute_box_iou(box_a: list[int], box_b: list[int]) -> float:
+    ymin_a, xmin_a, ymax_a, xmax_a = box_a
+    ymin_b, xmin_b, ymax_b, xmax_b = box_b
+
+    inter_xmin = max(xmin_a, xmin_b)
+    inter_ymin = max(ymin_a, ymin_b)
+    inter_xmax = min(xmax_a, xmax_b)
+    inter_ymax = min(ymax_a, ymax_b)
+
+    inter_width = max(0, inter_xmax - inter_xmin)
+    inter_height = max(0, inter_ymax - inter_ymin)
+    inter_area = inter_width * inter_height
+
+    area_a = max(0, xmax_a - xmin_a) * max(0, ymax_a - ymin_a)
+    area_b = max(0, xmax_b - xmin_b) * max(0, ymax_b - ymin_b)
+
+    union_area = area_a + area_b - inter_area
+    if union_area <= 0:
+        return 0.0
+
+    return inter_area / union_area
+
+
+def _append_non_overlapping_windows(existing_windows: list[dict], detected_windows: list[dict], iou_threshold: float = 0.45) -> list[dict]:
+    final_windows = existing_windows.copy()
+    for candidate in detected_windows:
+        overlaps = any(
+            _compute_box_iou(candidate["box_px"], existing["box_px"]) >= iou_threshold
+            for existing in existing_windows
+        )
+        if overlaps:
+            continue
+        final_windows.append(candidate)
+    return final_windows
+
 # -------------------------------------------------------------
 # REST API Endpoints
 # -------------------------------------------------------------
@@ -328,9 +364,14 @@ async def run_detection(project_id: str, page_num: int):
         raise HTTPException(status_code=502, detail=f"Gemini API Error: {str(e)}")
         
     # 6. Save detections to metadata.json
-    target_page["windows"] = detected_windows
-    # Keep user_corrected as False until user explicitly clicks Save Corrections
-    
+    if target_page.get("user_corrected"):
+        existing_windows = target_page.get("windows", [])
+        merged_windows = _append_non_overlapping_windows(existing_windows, detected_windows)
+        target_page["windows"] = merged_windows
+        print(f"[DEBUG] run_detection: Preserved {len(existing_windows)} corrected windows and appended {len(merged_windows) - len(existing_windows)} new AI windows.")
+    else:
+        target_page["windows"] = detected_windows
+
     try:
         with open(meta_path, "w") as f:
             json.dump(project_meta, f, indent=2)
@@ -339,7 +380,7 @@ async def run_detection(project_id: str, page_num: int):
         print(f"[ERROR] run_detection: Failed to write updated metadata.json. Error: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to save detected window coordinates.")
         
-    return {"page_number": page_num, "windows": detected_windows}
+    return {"page_number": page_num, "windows": target_page["windows"]}
 
 @app.get("/api/projects/{project_id}/pages/{page_num}/plan-regions")
 async def run_plan_region_detection(project_id: str, page_num: int):

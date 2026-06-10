@@ -10,9 +10,10 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 
 # Import services
-from app.services.pdf_processor import render_pdf_to_images, classify_pages_with_gemini
-from app.services.gemini_service import detect_windows, detect_windows_in_region
+from app.services.pdf_processor import render_pdf_to_images, classify_pages_locally
+from app.services.gemini_service import detect_windows
 from app.services.plan_region_detector import detect_floor_plan_regions
+from app.services.local_window_detector import detect_windows_locally
 
 # Load environment variables
 load_dotenv()
@@ -40,6 +41,7 @@ class SaveWindowsRequest(BaseModel):
 
 class DetectRegionRequest(BaseModel):
     region: list[int]  # [ymin_px, xmin_px, ymax_px, xmax_px]
+    replace: bool = False
 
 
 def append_correction_log(project_path: str, event: dict):
@@ -127,10 +129,9 @@ async def upload_pdf(file: UploadFile = File(...)):
         print(f"[ERROR] POST /api/upload: PDF rendering failed. Error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"PDF rendering failed: {str(e)}")
         
-    # Classify pages as floor plans using Gemini vision (falls back to heuristic if API unavailable)
-    api_key = os.getenv("GEMINI_API_KEY", "")
-    print(f"[DEBUG] POST /api/upload: Running Gemini floor plan classification on {len(pages_metadata)} pages...")
-    classified_pages = classify_pages_with_gemini(pages_metadata, api_key=api_key)
+    # Classify pages locally so upload does not depend on external AI quota.
+    print(f"[DEBUG] POST /api/upload: Running local floor plan classification on {len(pages_metadata)} pages...")
+    classified_pages = classify_pages_locally(pages_metadata)
 
     # Compile final pages list
     pages_list = []
@@ -432,29 +433,38 @@ async def run_plan_region_detection(project_id: str, page_num: int):
 @app.post("/api/projects/{project_id}/pages/{page_num}/detect-region")
 async def run_region_detection(project_id: str, page_num: int, payload: DetectRegionRequest = Body(...)):
     """
-    Crops the page image to the provided pixel region and runs Gemini detection
-    on just that sub-image. Appends new windows to metadata without replacing
-    any existing windows on the page.
+    Backward-compatible regional detection endpoint. This intentionally uses
+    the same local OpenCV detector as /detect-local-region so no regional UI
+    flow depends on Gemini.
     """
-    print(f"\n[DEBUG] POST /api/projects/{project_id}/pages/{page_num}/detect-region: Region={payload.region}")
+    print(f"\n[DEBUG] POST /api/projects/{project_id}/pages/{page_num}/detect-region: Redirecting to local detector.")
+    return await run_local_region_detection(project_id, page_num, payload)
+
+@app.post("/api/projects/{project_id}/pages/{page_num}/detect-local-region")
+async def run_local_region_detection(project_id: str, page_num: int, payload: DetectRegionRequest = Body(...)):
+    """
+    Runs deterministic local OpenCV detection on a selected plan region.
+    This avoids external model availability and gives us tuneable output.
+    """
+    print(f"\n[DEBUG] POST /api/projects/{project_id}/pages/{page_num}/detect-local-region: Region={payload.region}")
 
     project_path = os.path.join(PROJECTS_DIR, project_id)
     meta_path = os.path.join(project_path, "metadata.json")
 
     if not os.path.exists(meta_path):
-        print(f"[ERROR] run_region_detection: Project metadata not found at '{meta_path}'")
+        print(f"[ERROR] run_local_region_detection: Project metadata not found at '{meta_path}'")
         raise HTTPException(status_code=404, detail="Project metadata not found.")
 
     try:
         with open(meta_path, "r") as f:
             project_meta = json.load(f)
     except Exception as e:
-        print(f"[ERROR] run_region_detection: Failed to load metadata.json. Error: {str(e)}")
+        print(f"[ERROR] run_local_region_detection: Failed to load metadata.json. Error: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to load project metadata.")
 
     target_page = next((p for p in project_meta.get("pages", []) if p.get("page_number") == page_num), None)
     if not target_page:
-        print(f"[ERROR] run_region_detection: Page {page_num} not found in metadata.")
+        print(f"[ERROR] run_local_region_detection: Page {page_num} not found in metadata.")
         raise HTTPException(status_code=404, detail=f"Page {page_num} not found in project.")
 
     region = payload.region
@@ -467,40 +477,37 @@ async def run_region_detection(project_id: str, page_num: int, payload: DetectRe
 
     target_image_path = os.path.join(project_path, target_page["image_name"])
 
-    # Build few-shot history from other user-corrected pages in the same project.
-    few_shot_history = []
-    for page in project_meta.get("pages", []):
-        if page.get("page_number") == page_num:
-            continue
-        if page.get("user_corrected") == True:
-            hist_image_path = os.path.join(project_path, page["image_name"])
-            few_shot_history.append({
-                "image_path": hist_image_path,
-                "width": page["width"],
-                "height": page["height"],
-                "windows": page.get("windows", [])
-            })
+    templates = None
+    if target_page.get("user_corrected") and target_page.get("windows"):
+        corrected_windows = [
+            win for win in target_page.get("windows", [])
+            if isinstance(win.get("label"), str) and win["label"].strip().upper() == "W-09"
+        ]
+        if corrected_windows:
+            templates = corrected_windows
+        elif len(target_page.get("windows", [])) == 1:
+            templates = target_page.get("windows")
 
     try:
-        new_windows = detect_windows_in_region(
-            image_path=target_image_path,
-            region=region,
-            few_shot_history=few_shot_history
-        )
+        new_windows = detect_windows_locally(target_image_path, region=region, templates=templates)
     except Exception as e:
-        print(f"[ERROR] run_region_detection: {str(e)}")
-        raise HTTPException(status_code=502, detail=f"Gemini API Error: {str(e)}")
+        print(f"[ERROR] run_local_region_detection: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Local detection error: {str(e)}")
 
     existing_windows = target_page.get("windows", [])
-    target_page["windows"] = existing_windows + new_windows
+    if target_page.get("user_corrected"):
+        target_page["windows"] = _append_non_overlapping_windows(existing_windows, new_windows)
+    else:
+        target_page["windows"] = new_windows if payload.replace else existing_windows + new_windows
 
     try:
         with open(meta_path, "w") as f:
             json.dump(project_meta, f, indent=2)
-        print(f"[DEBUG] run_region_detection: Appended {len(new_windows)} windows. Total now: {len(target_page['windows'])}")
+        action = "Replaced with" if payload.replace else "Appended"
+        print(f"[DEBUG] run_local_region_detection: {action} {len(new_windows)} local windows. Total now: {len(target_page['windows'])}")
     except Exception as e:
-        print(f"[ERROR] run_region_detection: Failed to write metadata.json. Error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to save detected region windows to project metadata.")
+        print(f"[ERROR] run_local_region_detection: Failed to write metadata.json. Error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to save local detection windows to project metadata.")
 
     return {"page_number": page_num, "new_windows": new_windows, "total_windows": len(target_page["windows"])}
 

@@ -24,6 +24,7 @@ let panY = 0;
 let isPanning = false;
 let panStart = null;
 let spaceDown = false;
+let lastMouseDownTime = 0;
 
 // Canvas Context
 let canvas = null;
@@ -284,12 +285,29 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   canvasWrapper.addEventListener("mousedown", (e) => {
+    const now = Date.now();
+    const isRapidSecondClick = (now - lastMouseDownTime) < 300;
+    lastMouseDownTime = now;
+
     if (spaceDown) {
       isPanning = true;
       panStart = { x: e.clientX - panX, y: e.clientY - panY };
       canvasWrapper.style.cursor = "grabbing";
       e.preventDefault();
       return;
+    }
+
+    // Double-click + drag on empty canvas space to pan
+    if (isRapidSecondClick && bgImage.src) {
+      const mousePos = getMousePosOnImage(e);
+      const boxIdx = getBoxIndexAtPosition(mousePos.x, mousePos.y);
+      if (boxIdx === null) {
+        isPanning = true;
+        panStart = { x: e.clientX - panX, y: e.clientY - panY };
+        canvasWrapper.style.cursor = "grabbing";
+        e.preventDefault();
+        return;
+      }
     }
   });
 

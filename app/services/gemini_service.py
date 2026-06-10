@@ -13,19 +13,28 @@ from pydantic import BaseModel
 # -------------------------------------------------------------
 
 SYSTEM_INSTRUCTION = (
-    "You are an expert architectural blueprint analyzer. "
-    "Your task is to identify actual window openings on the provided floor plan. "
-    "A valid window must be embedded in a wall band and bounded by two perpendicular cap ends. "
-    "First find horizontal and vertical wall bands, then find openings within those walls. "
-    "For a vertical window, the top and bottom boundaries are horizontal cap lines; return a tight box from top cap to bottom cap while staying inside the wall thickness. "
-    "For a horizontal window, the left and right boundaries are vertical cap lines; return a tight box from left cap to right cap while staying inside the wall thickness. "
-    "The box must land on the wall, not beside it, and must not include room labels, dimensions, colored annotation labels, or extra wall continuation beyond the caps. "
-    "Reject candidates that do not have paired cap ends, are not between wall lines, or are doors, cabinets, plumbing/fixture symbols, text, dimension lines, revision clouds, or furniture. "
-    "If a page already contains colored training markup, ignore colored label rectangles and use only the underlying architectural window cap geometry. "
+    "You are a vision expert for a window-covering business that bids from architectural floor plans. "
+    "Your job is to find actual window openings so their boxes can later be scaled into real-world widths. "
+    "Use general floor-plan geometry, not memorized coordinates from any one drawing. "
+    "First decide whether the image contains a floor plan: look for rectangular room layouts, wall lines, room labels, doors, fixtures, dimensions, and a building perimeter polygon. "
+    "Then scan the exterior perimeter walls and interior walls for consistently sized wall breaks or architectural window symbols. "
+    "Do not annotate repeated drawing panels, schedules, title blocks, room-name rectangles, legends, tables, specification grids, or demo-plan grids. "
+    "If the page contains multiple separate floor plans, only return windows that you can tie to clear wall/cap geometry; do not fill every repeated panel. "
+    "A valid window must be embedded in a wall band, between wall lines, and bounded by two perpendicular cap ends. "
+    "On a north/south vertical wall, detect the horizontal cap lines that close the top and bottom of the window; draw the box from top cap to bottom cap and keep it inside the wall thickness. "
+    "On an east/west horizontal wall, detect the vertical cap lines that close the left and right of the window; draw the box from left cap to right cap and keep it inside the wall thickness. "
+    "For double-line windows, protruding bay-like windows, centerline windows, or two-pane symbols, return one covering box for the whole window assembly from outer cap to outer cap. "
+    "Most valid boxes are narrow wall elements: clearly wider-than-tall or taller-than-wide. Be suspicious of square or room-sized rectangles. "
+    "Give extra attention to common window locations: bedroom exterior walls, kitchens near sinks, living/dining rooms, offices, tub rooms, and repeated same-size symbols. "
+    "Look for repeated window shapes with similar dimensions, especially along the same elevation, but only accept them when they sit in a wall and have cap evidence. "
+    "If the plan is small or dense, reason as though zooming into the wall bands and cap ends; precision at the cap ends matters more than label placement. "
+    "Reject doors and openings with swing arcs, room entryways, cabinets, plumbing/fixture symbols, furniture, text, dimension lines, revision clouds, section/elevation markers, and colored training labels. "
+    "The returned box must land on the wall itself, not beside it, and must not include room labels, dimensions, colored annotation labels, or wall continuation beyond the caps. "
+    "If a page already contains colored training markup, ignore colored label rectangles and use only the underlying architectural window geometry. "
     "Count and label accepted windows sequentially (e.g. W-01, W-02) resetting on each floor plan. "
-    "If you can clearly read the room name adjacent to the accepted wall opening, include it in the label (e.g. Living Room W-01, Bed 1 W-02). "
+    "If you can clearly read the adjacent room name, include it in the label (e.g. Living Room W-01, Bedroom W-02, Kitchen W-03). "
     "Return bounding box coordinates in normalized integer scale [ymin, xmin, ymax, xmax] from 0 to 1000. "
-    "Respond ONLY with a valid JSON object in this exact format: "
+    "Respond only with a valid JSON object in this exact format: "
     "{\"windows\": [{\"label\": \"W-01\", \"box_2d\": [ymin, xmin, ymax, xmax]}, ...]}"
 )
 
@@ -67,6 +76,135 @@ def _pil_to_bytes(img: Image.Image, fmt: str = "JPEG") -> bytes:
     buf = io.BytesIO()
     img.save(buf, format=fmt)
     return buf.getvalue()
+
+
+def _model_candidates() -> list[str]:
+    """
+    Ordered Gemini model fallback list. Override with GEMINI_MODELS as a
+    comma-separated list, or GEMINI_MODEL for a single preferred model.
+    """
+    configured_models = os.getenv("GEMINI_MODELS", "").strip()
+    if configured_models:
+        return [model.strip() for model in configured_models.split(",") if model.strip()]
+
+    configured_model = os.getenv("GEMINI_MODEL", "").strip()
+    if configured_model:
+        return [configured_model]
+
+    return [
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash",
+    ]
+
+
+def _generate_content_with_fallback(client, contents, generation_config, caller_name: str):
+    """
+    Calls Gemini with model fallback and exponential backoff. This is mainly to
+    ride through temporary 503 high-demand errors without forcing a user retry.
+    """
+    max_retries = int(os.getenv("GEMINI_MAX_RETRIES", "4"))
+    initial_retry_delay = float(os.getenv("GEMINI_RETRY_DELAY_SECONDS", "3"))
+    last_error = None
+
+    for model in _model_candidates():
+        retry_delay = initial_retry_delay
+        for attempt in range(max_retries):
+            try:
+                print(f"[DEBUG] {caller_name}: Calling model '{model}' attempt {attempt + 1}/{max_retries}.")
+                start_time = time.time()
+                response = client.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=generation_config,
+                )
+                latency = time.time() - start_time
+                print(f"[DEBUG] {caller_name}: Model '{model}' succeeded in {latency:.2f} seconds.")
+                return response
+            except Exception as e:
+                last_error = e
+                err_text = str(e)
+                print(f"[WARNING] {caller_name}: Model '{model}' attempt {attempt + 1} failed. Error: {err_text}")
+
+                if attempt < max_retries - 1:
+                    print(f"[DEBUG] {caller_name}: Waiting {retry_delay:.1f} seconds before retrying '{model}'...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+
+        print(f"[WARNING] {caller_name}: Exhausted retries for model '{model}'. Trying next fallback if available.")
+
+    print(f"[ERROR] {caller_name}: All Gemini model fallbacks exhausted.")
+    raise last_error
+
+
+def _convert_and_filter_windows(detected_windows: list, orig_width: int, orig_height: int, caller_name: str) -> list[dict]:
+    """
+    Convert normalized Gemini boxes to pixel boxes and reject obvious floods:
+    square blocks, huge page regions, malformed boxes, and runaway counts.
+    """
+    raw_count = len(detected_windows)
+    max_windows = int(os.getenv("GEMINI_MAX_WINDOWS", "120"))
+    min_aspect_ratio = float(os.getenv("WINDOW_MIN_ASPECT_RATIO", "1.45"))
+    max_width_ratio = float(os.getenv("WINDOW_MAX_WIDTH_RATIO", "0.18"))
+    max_height_ratio = float(os.getenv("WINDOW_MAX_HEIGHT_RATIO", "0.18"))
+    max_area_ratio = float(os.getenv("WINDOW_MAX_AREA_RATIO", "0.01"))
+
+    if raw_count > max_windows * 5:
+        print(f"[WARNING] {caller_name}: Model returned {raw_count} boxes, likely grid/table hallucination. Rejecting output.")
+        return []
+
+    final_windows = []
+    rejected = 0
+    page_area = orig_width * orig_height
+
+    for win in detected_windows:
+        box_2d = win.get("box_2d", [])
+        if len(box_2d) != 4:
+            print(f"[WARNING] {caller_name}: Skipping malformed box_2d entry: {box_2d}")
+            rejected += 1
+            continue
+
+        ymin, xmin, ymax, xmax = box_2d
+        ymin_px = int(clip_val((ymin / 1000.0) * orig_height, 0, orig_height))
+        xmin_px = int(clip_val((xmin / 1000.0) * orig_width, 0, orig_width))
+        ymax_px = int(clip_val((ymax / 1000.0) * orig_height, 0, orig_height))
+        xmax_px = int(clip_val((xmax / 1000.0) * orig_width, 0, orig_width))
+
+        if ymin_px > ymax_px:
+            ymin_px, ymax_px = ymax_px, ymin_px
+        if xmin_px > xmax_px:
+            xmin_px, xmax_px = xmax_px, xmin_px
+
+        width = xmax_px - xmin_px
+        height = ymax_px - ymin_px
+        if width < 6 or height < 6:
+            rejected += 1
+            continue
+
+        aspect_ratio = max(width, height) / max(1, min(width, height))
+        area_ratio = (width * height) / page_area
+
+        if aspect_ratio < min_aspect_ratio:
+            rejected += 1
+            continue
+        if width / orig_width > max_width_ratio or height / orig_height > max_height_ratio:
+            rejected += 1
+            continue
+        if area_ratio > max_area_ratio:
+            rejected += 1
+            continue
+
+        final_windows.append({
+            "label": win.get("label", f"W-{len(final_windows) + 1:02d}"),
+            "box_px": [ymin_px, xmin_px, ymax_px, xmax_px]
+        })
+
+    if len(final_windows) > max_windows:
+        print(f"[WARNING] {caller_name}: Filtered count {len(final_windows)} still exceeds {max_windows}. Rejecting output.")
+        return []
+
+    print(f"[DEBUG] {caller_name}: Accepted {len(final_windows)} windows; rejected {rejected} of {raw_count} candidates.")
+    return final_windows
 
 
 def detect_windows(image_path: str, few_shot_history: list = None) -> list[dict]:
@@ -185,59 +323,21 @@ def detect_windows(image_path: str, few_shot_history: list = None) -> list[dict]
         temperature=0.1,
     )
 
-    # 7. Call Gemini with exponential backoff retry logic
-    max_retries = 3
-    retry_delay = 2
+    # 7. Call Gemini with model fallback and exponential backoff retry logic
+    response = _generate_content_with_fallback(client, contents, generation_config, "detect_windows")
 
-    for attempt in range(max_retries):
-        try:
-            start_time = time.time()
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=contents,
-                config=generation_config,
-            )
-            latency = time.time() - start_time
-            print(f"[DEBUG] detect_windows: API request succeeded in {latency:.2f} seconds.")
+    # Parse response
+    response_text = response.text
+    print(f"[DEBUG] detect_windows: Raw response string (first 500 chars): {response_text[:500]}")
 
-            # Parse response
-            response_text = response.text
-            print(f"[DEBUG] detect_windows: Raw response string (first 500 chars): {response_text[:500]}")
+    data = json.loads(response_text)
+    detected_windows = data.get("windows", [])
+    print(f"[DEBUG] detect_windows: Parsed {len(detected_windows)} windows from Gemini output.")
 
-            data = json.loads(response_text)
-            detected_windows = data.get("windows", [])
-            print(f"[DEBUG] detect_windows: Parsed {len(detected_windows)} windows from Gemini output.")
+    final_windows = _convert_and_filter_windows(detected_windows, orig_width, orig_height, "detect_windows")
 
-            # Translate normalized coordinates back to original image pixels
-            final_windows = []
-            for win in detected_windows:
-                box_2d = win.get("box_2d", [])
-                if len(box_2d) == 4:
-                    ymin, xmin, ymax, xmax = box_2d
-                    ymin_px = int((ymin / 1000.0) * orig_height)
-                    xmin_px = int((xmin / 1000.0) * orig_width)
-                    ymax_px = int((ymax / 1000.0) * orig_height)
-                    xmax_px = int((xmax / 1000.0) * orig_width)
-
-                    final_windows.append({
-                        "label": win.get("label", "W"),
-                        "box_px": [ymin_px, xmin_px, ymax_px, xmax_px]
-                    })
-                else:
-                    print(f"[WARNING] detect_windows: Skipping malformed box_2d entry: {box_2d}")
-
-            print(f"[DEBUG] detect_windows: Bounding boxes translated to original dimensions successfully. Returning {len(final_windows)} windows.")
-            return final_windows
-
-        except Exception as e:
-            print(f"[WARNING] detect_windows: Attempt {attempt + 1} failed. Error: {str(e)}")
-            if attempt < max_retries - 1:
-                print(f"[DEBUG] detect_windows: Waiting {retry_delay} seconds before retrying...")
-                time.sleep(retry_delay)
-                retry_delay *= 2  # exponential backoff
-            else:
-                print("[ERROR] detect_windows: All Gemini API retries exhausted.")
-                raise e
+    print(f"[DEBUG] detect_windows: Bounding boxes translated to original dimensions successfully. Returning {len(final_windows)} windows.")
+    return final_windows
 
 
 def detect_windows_in_region(image_path: str, region: list, few_shot_history: list = None) -> list[dict]:
@@ -336,51 +436,24 @@ def detect_windows_in_region(image_path: str, region: list, few_shot_history: li
         temperature=0.1,
     )
 
-    max_retries = 3
-    retry_delay = 2
-    for attempt in range(max_retries):
-        try:
-            start_time = time.time()
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=contents,
-                config=generation_config,
-            )
-            latency = time.time() - start_time
-            print(f"[DEBUG] detect_windows_in_region: API request succeeded in {latency:.2f} seconds.")
+    response = _generate_content_with_fallback(client, contents, generation_config, "detect_windows_in_region")
 
-            response_text = response.text
-            print(f"[DEBUG] detect_windows_in_region: Raw response string (first 500 chars): {response_text[:500]}")
-            data = json.loads(response_text)
-            detected_windows = data.get("windows", [])
+    response_text = response.text
+    print(f"[DEBUG] detect_windows_in_region: Raw response string (first 500 chars): {response_text[:500]}")
+    data = json.loads(response_text)
+    detected_windows = data.get("windows", [])
 
-            final_windows = []
-            for win in detected_windows:
-                box_2d = win.get("box_2d", [])
-                if len(box_2d) == 4:
-                    ymin_norm, xmin_norm, ymax_norm, xmax_norm = box_2d
-                    ymin_px = int((ymin_norm / 1000.0) * crop_height) + ymin
-                    xmin_px = int((xmin_norm / 1000.0) * crop_width) + xmin
-                    ymax_px = int((ymax_norm / 1000.0) * crop_height) + ymin
-                    xmax_px = int((xmax_norm / 1000.0) * crop_width) + xmin
-                    final_windows.append({
-                        "label": win.get("label", "W"),
-                        "box_px": [ymin_px, xmin_px, ymax_px, xmax_px]
-                    })
-                else:
-                    print(f"[WARNING] detect_windows_in_region: Skipping malformed box_2d entry: {box_2d}")
+    crop_windows = _convert_and_filter_windows(detected_windows, crop_width, crop_height, "detect_windows_in_region")
+    final_windows = []
+    for win in crop_windows:
+        win_ymin, win_xmin, win_ymax, win_xmax = win["box_px"]
+        final_windows.append({
+            "label": win.get("label", f"W-{len(final_windows) + 1:02d}"),
+            "box_px": [win_ymin + ymin, win_xmin + xmin, win_ymax + ymin, win_xmax + xmin]
+        })
 
-            print(f"[DEBUG] detect_windows_in_region: Returning {len(final_windows)} windows from region crop.")
-            return final_windows
-        except Exception as e:
-            print(f"[WARNING] detect_windows_in_region: Attempt {attempt + 1} failed. Error: {str(e)}")
-            if attempt < max_retries - 1:
-                print(f"[DEBUG] detect_windows_in_region: Waiting {retry_delay} seconds before retrying...")
-                time.sleep(retry_delay)
-                retry_delay *= 2
-            else:
-                print("[ERROR] detect_windows_in_region: All Gemini API retries exhausted.")
-                raise e
+    print(f"[DEBUG] detect_windows_in_region: Returning {len(final_windows)} windows from region crop.")
+    return final_windows
 
 
 def clip_val(val, min_val, max_val):

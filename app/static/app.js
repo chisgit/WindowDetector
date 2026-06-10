@@ -61,6 +61,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const thumbnailsList = document.getElementById("thumbnails-list");
   
   // Canvas Viewport Elements
+  const aiDetectBtn = document.getElementById("ai-detect-btn");
   const detectBtn = document.getElementById("detect-btn");
   const findPlansBtn = document.getElementById("find-plans-btn");
   const detectRegionBtn = document.getElementById("detect-region-btn");
@@ -757,10 +758,10 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      showLoader("Detecting Region", "Running Gemini on the selected crop...");
-      updateStatus("Detecting windows inside selected region...", true);
+      showLoader("Detecting Region", "Running local detection on the selected crop...");
+      updateStatus("Detecting windows inside selected region locally...", true);
 
-      fetch(`/api/projects/${activeProjectId}/pages/${activePageNum}/detect-region`, {
+      fetch(`/api/projects/${activeProjectId}/pages/${activePageNum}/detect-local-region`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ region: regionBox })
@@ -897,7 +898,11 @@ document.addEventListener("DOMContentLoaded", () => {
       body: formData
     })
     .then(res => {
-      if (!res.ok) throw new Error("Upload processing error on server.");
+      if (!res.ok) {
+        return res.json().then(errData => {
+          throw new Error(errData.detail || "Upload processing error on server.");
+        });
+      }
       return res.json();
     })
     .then(data => {
@@ -911,8 +916,8 @@ document.addEventListener("DOMContentLoaded", () => {
     .catch(err => {
       console.error("[ERROR] PDF Upload failed:", err);
       hideLoader();
-      updateStatus("Upload failed. Please ensure file is a valid PDF.", false, true);
-      alert("Error uploading PDF file. Please try again.");
+      updateStatus(`Upload failed: ${err.message}`, false, true);
+      alert(`Error uploading PDF file: ${err.message}`);
     });
   });
 
@@ -1105,6 +1110,7 @@ document.addEventListener("DOMContentLoaded", () => {
     lastMouseDownTime = 0; // reset so first click on new page is never misread as dblclick
     
     // Set controls states
+    aiDetectBtn.removeAttribute("disabled");
     detectBtn.removeAttribute("disabled");
     findPlansBtn.removeAttribute("disabled");
     detectRegionBtn.removeAttribute("disabled");
@@ -1170,6 +1176,7 @@ document.addEventListener("DOMContentLoaded", () => {
     selectedPlanRegionIndex = null;
     bgImage.src = "";
     
+    aiDetectBtn.setAttribute("disabled", "true");
     detectBtn.setAttribute("disabled", "true");
     findPlansBtn.setAttribute("disabled", "true");
     detectRegionBtn.setAttribute("disabled", "true");
@@ -1271,56 +1278,130 @@ document.addEventListener("DOMContentLoaded", () => {
     drawCanvas();
   });
 
-  // Run AI Detection
-  detectBtn.addEventListener("click", () => {
+  // Run Gemini AI detection on the whole page.
+  aiDetectBtn.addEventListener("click", () => {
     if (!activeProjectId || !activePageNum) return;
 
-    const selectedRegion = selectedPlanRegionIndex !== null && planRegions[selectedPlanRegionIndex]
-      ? planRegions[selectedPlanRegionIndex].box_px
-      : null;
-    const detectUrl = selectedRegion
-      ? `/api/projects/${activeProjectId}/pages/${activePageNum}/detect-region`
-      : `/api/projects/${activeProjectId}/pages/${activePageNum}/detect`;
-    const fetchOptions = selectedRegion
-      ? {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ region: selectedRegion })
-        }
-      : undefined;
+    showLoader("AI Detection", "Running Gemini AI detection on the selected page...");
+    updateStatus("Running Gemini AI detection...", true);
 
-    showLoader("Analyzing Floor Plan", selectedRegion ? "Running window detection on the selected plan only..." : "Running window detection on the full sheet...");
-    updateStatus(selectedRegion ? "Running AI detection on selected plan region..." : "Running AI window detection query...", true);
-
-    fetch(detectUrl, fetchOptions)
+    fetch(`/api/projects/${activeProjectId}/pages/${activePageNum}/detect`)
       .then(res => {
         if (!res.ok) {
-          // Read server JSON error detail
           return res.json().then(errData => {
-            throw new Error(errData.detail || "API detection error.");
+            throw new Error(errData.detail || "AI detection failed.");
           });
         }
         return res.json();
       })
       .then(data => {
-        console.log("[DEBUG] AI Detection succeeded. Response:", data);
-        if (selectedRegion) {
-          windows = windows.concat(data.new_windows || []);
-        } else {
-          windows = data.windows || [];
+        console.log("[DEBUG] AI detection succeeded.", data);
+        windows = data.windows || [];
+        activeBoxIndex = null;
+        if (activePageObj) {
+          activePageObj.windows = JSON.parse(JSON.stringify(windows));
+          activePageObj.user_corrected = false;
         }
+        drawCanvas();
+        hideLoader();
+        updateStatus(`AI detection returned ${windows.length} windows.`);
+      })
+      .catch(err => {
+        console.error("[ERROR] AI detection failed:", err);
+        hideLoader();
+        updateStatus(`AI detection failed: ${err.message}`, false, true);
+        alert(`AI detection failed: ${err.message}`);
+      });
+  });
+
+  // Run local detection on the selected plan region.
+  detectBtn.addEventListener("click", () => {
+    if (!activeProjectId || !activePageNum) return;
+
+    const getSelectedRegion = () => {
+      if (selectedPlanRegionIndex !== null && planRegions[selectedPlanRegionIndex]) {
+        return planRegions[selectedPlanRegionIndex].box_px;
+      }
+      return regionBox;
+    };
+
+    const runLocalDetection = (selectedRegion) => {
+      showLoader("Local Detection", "Detecting paired wall/window linework inside the selected plan...");
+      updateStatus("Running local window detection on selected plan region...", true);
+
+      return fetch(`/api/projects/${activeProjectId}/pages/${activePageNum}/detect-local-region`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ region: selectedRegion, replace: true })
+      })
+      .then(res => {
+        if (!res.ok) {
+          // Read server JSON error detail
+          return res.json().then(errData => {
+            throw new Error(errData.detail || "Local detection error.");
+          });
+        }
+        return res.json();
+      })
+      .then(data => {
+        console.log("[DEBUG] Local detection succeeded. Response:", data);
+        windows = data.new_windows || [];
         activeBoxIndex = null;
         drawCanvas();
         hideLoader();
-        updateStatus(selectedRegion
-          ? `Selected plan detection added ${data.new_windows?.length ?? 0} windows.`
-          : `Gemini window detection complete. Detected: ${windows.length} windows.`);
+        updateStatus(`Local detection added ${data.new_windows?.length ?? 0} windows.`);
       })
       .catch(err => {
-        console.error("[ERROR] Window detection failed:", err);
+        console.error("[ERROR] Local detection failed:", err);
         hideLoader();
         updateStatus(`Detection failed: ${err.message}`, false, true);
-        alert(`AI Detection failed: ${err.message}`);
+        alert(`Detection failed: ${err.message}`);
+      });
+    };
+
+    const selectedRegion = getSelectedRegion();
+    if (selectedRegion) {
+      runLocalDetection(selectedRegion);
+      return;
+    }
+
+    showLoader("Finding Floor Plans", "No plan region selected, locating one first...");
+    updateStatus("No region selected. Finding floor plan regions first...", true);
+
+    fetch(`/api/projects/${activeProjectId}/pages/${activePageNum}/plan-regions`)
+      .then(res => {
+        if (!res.ok) {
+          return res.json().then(errData => {
+            throw new Error(errData.detail || "Plan region detection failed.");
+          });
+        }
+        return res.json();
+      })
+      .then(data => {
+        planRegions = data.plan_regions || [];
+        selectedPlanRegionIndex = planRegions.length > 0 ? 0 : null;
+        regionBox = selectedPlanRegionIndex !== null ? planRegions[selectedPlanRegionIndex].box_px.slice() : null;
+        if (activePageObj) {
+          activePageObj.plan_regions = JSON.parse(JSON.stringify(planRegions));
+        }
+        activeBoxIndex = null;
+        drawCanvas();
+
+        const autoRegion = getSelectedRegion();
+        if (!autoRegion) {
+          hideLoader();
+          updateStatus("No plan region found. Draw a region manually, then run detection.", false, true);
+          alert("No plan region found. Draw a region manually, then run detection.");
+          return null;
+        }
+
+        return runLocalDetection(autoRegion);
+      })
+      .catch(err => {
+        console.error("[ERROR] Auto plan-region detection failed:", err);
+        hideLoader();
+        updateStatus(`Detection failed: ${err.message}`, false, true);
+        alert(`Detection failed: ${err.message}`);
       });
   });
 

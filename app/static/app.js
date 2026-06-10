@@ -23,6 +23,8 @@ let panX = 0;
 let panY = 0;
 let isPanning = false;
 let panStart = null;
+let touchPanActive = false;
+let touchPanStart = null;
 let spaceDown = false;
 let lastMouseDownTime = 0;
 let regionBox = null;
@@ -64,6 +66,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const canvasPlaceholder = document.getElementById("canvas-placeholder");
   const canvasWrapper = document.getElementById("canvas-wrapper");
   const canvasViewport = document.getElementById("canvas-viewport");
+  canvasWrapper.style.touchAction = "none";
   
   // Loading Overlay
   const loadingOverlay = document.getElementById("loading-overlay");
@@ -351,6 +354,53 @@ document.addEventListener("DOMContentLoaded", () => {
       canvasWrapper.style.cursor = "";
     }
   });
+
+  canvasWrapper.addEventListener("touchstart", (e) => {
+    if (e.touches.length !== 2 || currentMode !== "SELECT" || !bgImage.src) return;
+
+    const wrapperRect = canvasWrapper.getBoundingClientRect();
+    const x1 = e.touches[0].clientX - wrapperRect.left;
+    const y1 = e.touches[0].clientY - wrapperRect.top;
+    const x2 = e.touches[1].clientX - wrapperRect.left;
+    const y2 = e.touches[1].clientY - wrapperRect.top;
+
+    const centroidX = (x1 + x2) / 2;
+    const centroidY = (y1 + y2) / 2;
+
+    touchPanActive = true;
+    touchPanStart = { x: centroidX - panX, y: centroidY - panY };
+    canvasWrapper.style.cursor = "grabbing";
+    e.preventDefault();
+  }, { passive: false });
+
+  canvasWrapper.addEventListener("touchmove", (e) => {
+    if (!touchPanActive || e.touches.length !== 2) return;
+
+    const wrapperRect = canvasWrapper.getBoundingClientRect();
+    const x1 = e.touches[0].clientX - wrapperRect.left;
+    const y1 = e.touches[0].clientY - wrapperRect.top;
+    const x2 = e.touches[1].clientX - wrapperRect.left;
+    const y2 = e.touches[1].clientY - wrapperRect.top;
+
+    const centroidX = (x1 + x2) / 2;
+    const centroidY = (y1 + y2) / 2;
+
+    panX = centroidX - touchPanStart.x;
+    panY = centroidY - touchPanStart.y;
+    applyTransform();
+    e.preventDefault();
+  }, { passive: false });
+
+  const endTouchPan = () => {
+    if (touchPanActive) {
+      touchPanActive = false;
+      touchPanStart = null;
+      canvasWrapper.style.cursor = "";
+    }
+  };
+
+  canvasWrapper.addEventListener("touchend", endTouchPan, { passive: false });
+  canvasWrapper.addEventListener("touchcancel", endTouchPan, { passive: false });
 
   // Capture-phase: fires BEFORE canvas.mousedown so isPanning is set in time
   // for canvas's existing guard `if (isPanning || spaceDown) return` to work.

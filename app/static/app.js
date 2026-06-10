@@ -412,6 +412,7 @@ document.addEventListener("DOMContentLoaded", () => {
       isPanning = true;
       panStart = { x: e.clientX - panX, y: e.clientY - panY };
       canvasWrapper.style.cursor = "grabbing";
+      canvasWrapper.setPointerCapture(e.pointerId);
       e.preventDefault();
       return;
     }
@@ -424,24 +425,18 @@ document.addEventListener("DOMContentLoaded", () => {
         isPanning = true;
         panStart = { x: e.clientX - panX, y: e.clientY - panY };
         canvasWrapper.style.cursor = "grabbing";
+        canvasWrapper.setPointerCapture(e.pointerId);
         e.preventDefault();
         return;
       }
     }
   }, { capture: true });
 
-  canvasWrapper.addEventListener("mousemove", (e) => {
+  canvasWrapper.addEventListener("pointermove", (e) => {
     if (isPanning && panStart) {
       panX = e.clientX - panStart.x;
       panY = e.clientY - panStart.y;
       applyTransform();
-      return;
-    }
-
-    if (currentMode === "SELECT" && bgImage.src && !spaceDown && !isDrawingRegion) {
-      const mousePos = getMousePosOnImage(e);
-      const boxIdx = getBoxIndexAtPosition(mousePos.x, mousePos.y);
-      canvasWrapper.style.cursor = boxIdx === null ? "grab" : "";
     }
   });
 
@@ -451,7 +446,22 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  canvasWrapper.addEventListener("pointerup", () => {
+  canvasWrapper.addEventListener("pointerup", (e) => {
+    if (isPanning) {
+      isPanning = false;
+      panStart = null;
+      canvasWrapper.style.cursor = spaceDown ? "grab" : "";
+      if (e.pointerId) {
+        try {
+          canvasWrapper.releasePointerCapture(e.pointerId);
+        } catch (err) {
+          // Ignore if pointer capture is not active.
+        }
+      }
+    }
+  });
+
+  canvasWrapper.addEventListener("pointercancel", () => {
     if (isPanning) {
       isPanning = false;
       panStart = null;

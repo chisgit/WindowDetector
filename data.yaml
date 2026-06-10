@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 3
+names: ['door', 'wall', 'window']
+
+roboflow:
+  workspace: floorplan-recognition
+  project: cubicasa5k-2-qpmsa
+  version: 4
+  license: MIT
+  url: https://universe.roboflow.com/floorplan-recognition/cubicasa5k-2-qpmsa/dataset/4

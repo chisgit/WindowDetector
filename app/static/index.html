@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Floor Plan Window Detector</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Modern clean typography from Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="dark-theme">
+  
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header glass">
+      <div class="brand">
+        <span class="icon">[ ]</span>
+        <h1>Floor Plan Window Detector</h1>
+      </div>
+      
+      <div class="project-selector">
+        <select id="project-dropdown" class="select-input">
+          <option value="">-- Select Active Project --</option>
+        </select>
+        <button id="delete-project-btn" class="btn danger-outline" title="Delete selected project" disabled>
+          Delete
+        </button>
+      </div>
+
+      <div class="upload-control">
+        <input type="file" id="pdf-file-input" accept=".pdf" style="display: none;">
+        <button id="upload-trigger-btn" class="btn primary">
+          <span class="btn-icon">Upload</span> PDF Blueprint
+        </button>
+      </div>
+    </header>
+    
+    <!-- Main Content Layout -->
+    <div class="main-layout">
+      <!-- Sidebar containing thumbnails of floor plans -->
+      <aside class="sidebar glass">
+        <div class="sidebar-header">
+          <h3>Floor Plan Pages</h3>
+        </div>
+        <div id="thumbnails-list" class="thumbnails-container">
+          <!-- Populated by JS -->
+          <div class="no-pages-message">No PDF uploaded yet.</div>
+        </div>
+      </aside>
+
+      <!-- Viewport containing interactive HTML5 canvas -->
+      <main class="canvas-viewport glass">
+        <div class="canvas-controls">
+          <div class="control-group">
+            <button id="detect-btn" class="btn action-btn secondary" disabled>
+              <span class="btn-icon">AI</span> Run Detection
+            </button>
+            <button id="add-mode-btn" class="btn action-btn toggle-btn" disabled>
+              <span class="btn-icon">+</span> Add Window Mode: Off
+            </button>
+          </div>
+          
+          <div class="control-group">
+            <button id="fit-btn" class="btn action-btn secondary" disabled>
+              <span class="btn-icon">Fit</span> Page
+            </button>
+            <button id="save-btn" class="btn action-btn success" disabled>
+              <span class="btn-icon">Save</span> Corrections
+            </button>
+          </div>
+        </div>
+
+        <div class="canvas-wrapper" id="canvas-wrapper">
+          <div id="canvas-viewport" class="canvas-viewport-inner">
+            <canvas id="floorplan-canvas"></canvas>
+          </div>
+          <div id="canvas-placeholder" class="canvas-placeholder">
+            <div class="placeholder-icon">[ ]</div>
+            <p>Upload a PDF or select an existing project page from the sidebar to begin.</p>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Status Bar -->
+    <footer class="app-footer">
+      <div class="status-indicator">
+        <span class="status-dot green" id="status-dot"></span>
+        <span id="status-text">System Initialized and Ready.</span>
+      </div>
+      <div class="footer-meta">Powered by Gemini 2.5 Flash</div>
+    </footer>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div id="loading-overlay" class="loading-overlay hidden">
+    <div class="loader-card glass">
+      <div class="spinner"></div>
+      <h3 id="loader-title">Processing PDF...</h3>
+      <p id="loader-desc">Rendering high-resolution blueprints, please wait.</p>
+    </div>
+  </div>
+
+  <!-- Edit/Delete Window Dialog Modal -->
+  <div id="edit-modal" class="modal-overlay hidden">
+    <div class="modal-content glass">
+      <div class="modal-header">
+        <h3>Edit Window Information</h3>
+        <button id="modal-close-x" class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="window-label-input">Window Label / Identifier</label>
+          <input type="text" id="window-label-input" class="text-input" placeholder="e.g. W-01 or Living Room W-01">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="modal-delete-btn" class="btn danger">Delete Window</button>
+        <div class="footer-right-buttons">
+          <button id="modal-cancel-btn" class="btn secondary">Cancel</button>
+          <button id="modal-save-btn" class="btn success">Save Changes</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm Delete Project Modal -->
+  <div id="confirm-delete-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <h3 class="modal-title" style="color: #ef4444;">Delete Project?</h3>
+      <p id="confirm-delete-desc" style="color: var(--text-muted); margin: 0.75rem 0 1.5rem;">This will permanently remove all pages, images and detections for this project. This cannot be undone.</p>
+      <div class="modal-actions">
+        <button id="confirm-delete-cancel-btn" class="btn secondary">Cancel</button>
+        <button id="confirm-delete-ok-btn" class="btn" style="background: #ef4444; color: #fff;">Yes, Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

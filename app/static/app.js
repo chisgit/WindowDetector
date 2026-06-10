@@ -287,6 +287,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // Capture-phase: fires BEFORE canvas.mousedown so isPanning is set in time
   // for canvas's existing guard `if (isPanning || spaceDown) return` to work.
   canvasWrapper.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return; // Only left button should trigger panning behavior.
+
     const now = Date.now();
     const isRapidSecondClick = (now - lastMouseDownTime) < 300;
     lastMouseDownTime = now;
@@ -325,6 +327,22 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   canvasWrapper.addEventListener("mouseup", () => {
+    if (isPanning) {
+      isPanning = false;
+      panStart = null;
+      canvasWrapper.style.cursor = spaceDown ? "grab" : "";
+    }
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if (isPanning && panStart) {
+      panX = e.clientX - panStart.x;
+      panY = e.clientY - panStart.y;
+      applyTransform();
+    }
+  });
+
+  window.addEventListener("mouseup", () => {
     if (isPanning) {
       isPanning = false;
       panStart = null;

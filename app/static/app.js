@@ -404,13 +404,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Capture-phase: fires BEFORE canvas.mousedown so isPanning is set in time
   // for canvas's existing guard `if (isPanning || spaceDown) return` to work.
-  canvasWrapper.addEventListener("mousedown", (e) => {
+  canvasWrapper.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return; // Only left button should trigger panning behavior.
     if (currentMode !== "SELECT") return;
-
-    const now = Date.now();
-    const isRapidSecondClick = (now - lastMouseDownTime) < 300;
-    lastMouseDownTime = now;
 
     if (spaceDown) {
       isPanning = true;
@@ -421,10 +417,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // Double-click + drag on empty canvas space to pan.
-    // Because this listener runs in capture phase, isPanning is set before
-    // canvas.mousedown fires, so the canvas guard bails out cleanly —
-    // ADD mode is not accidentally triggered and SELECT logic is not run.
-    if (isRapidSecondClick && bgImage.src) {
+    if (e.detail === 2 && bgImage.src) {
       const mousePos = getMousePosOnImage(e);
       const boxIdx = getBoxIndexAtPosition(mousePos.x, mousePos.y);
       if (boxIdx === null) {
@@ -458,7 +451,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  canvasWrapper.addEventListener("mouseup", () => {
+  canvasWrapper.addEventListener("pointerup", () => {
     if (isPanning) {
       isPanning = false;
       panStart = null;

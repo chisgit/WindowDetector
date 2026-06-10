@@ -442,6 +442,19 @@ document.addEventListener("DOMContentLoaded", () => {
       panX = e.clientX - panStart.x;
       panY = e.clientY - panStart.y;
       applyTransform();
+      return;
+    }
+
+    if (currentMode === "SELECT" && bgImage.src && !spaceDown && !isDrawingRegion) {
+      const mousePos = getMousePosOnImage(e);
+      const boxIdx = getBoxIndexAtPosition(mousePos.x, mousePos.y);
+      canvasWrapper.style.cursor = boxIdx === null ? "grab" : "";
+    }
+  });
+
+  canvasWrapper.addEventListener("mouseleave", () => {
+    if (!isPanning && !spaceDown) {
+      canvasWrapper.style.cursor = "";
     }
   });
 

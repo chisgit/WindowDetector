@@ -23,6 +23,10 @@ let panX = 0;
 let panY = 0;
 let isPanning = false;
 let panStart = null;
+let pendingPan = false;
+let pendingPanPointerId = null;
+let panStartScreen = null;
+let panThreshold = 6;
 let touchPanActive = false;
 let touchPanStart = null;
 let spaceDown = false;
@@ -407,32 +411,30 @@ document.addEventListener("DOMContentLoaded", () => {
   canvasWrapper.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return; // Only left button should trigger panning behavior.
     if (currentMode !== "SELECT") return;
+    if (!bgImage.src || spaceDown) return;
 
-    if (spaceDown) {
-      isPanning = true;
+    const mousePos = getMousePosOnImage(e);
+    const boxIdx = getBoxIndexAtPosition(mousePos.x, mousePos.y);
+    if (boxIdx === null) {
+      pendingPan = true;
+      pendingPanPointerId = e.pointerId;
+      panStartScreen = { x: e.clientX, y: e.clientY };
       panStart = { x: e.clientX - panX, y: e.clientY - panY };
-      canvasWrapper.style.cursor = "grabbing";
       canvasWrapper.setPointerCapture(e.pointerId);
-      e.preventDefault();
-      return;
-    }
-
-    // Double-click + drag on empty canvas space to pan.
-    if (e.detail === 2 && bgImage.src) {
-      const mousePos = getMousePosOnImage(e);
-      const boxIdx = getBoxIndexAtPosition(mousePos.x, mousePos.y);
-      if (boxIdx === null) {
-        isPanning = true;
-        panStart = { x: e.clientX - panX, y: e.clientY - panY };
-        canvasWrapper.style.cursor = "grabbing";
-        canvasWrapper.setPointerCapture(e.pointerId);
-        e.preventDefault();
-        return;
-      }
     }
   }, { capture: true });
 
   canvasWrapper.addEventListener("pointermove", (e) => {
+    if (pendingPan && e.pointerId === pendingPanPointerId) {
+      const dx = e.clientX - panStartScreen.x;
+      const dy = e.clientY - panStartScreen.y;
+      if (Math.hypot(dx, dy) > panThreshold) {
+        isPanning = true;
+        pendingPan = false;
+        canvasWrapper.style.cursor = "grabbing";
+      }
+    }
+
     if (isPanning && panStart) {
       panX = e.clientX - panStart.x;
       panY = e.clientY - panStart.y;
@@ -446,27 +448,32 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  canvasWrapper.addEventListener("pointerup", (e) => {
-    if (isPanning) {
+  const releasePanPointer = (pointerId) => {
+    if (pointerId && pendingPanPointerId === pointerId) {
+      pendingPan = false;
+      pendingPanPointerId = null;
+      panStartScreen = null;
+    }
+    if (pointerId && isPanning) {
       isPanning = false;
       panStart = null;
       canvasWrapper.style.cursor = spaceDown ? "grab" : "";
-      if (e.pointerId) {
-        try {
-          canvasWrapper.releasePointerCapture(e.pointerId);
-        } catch (err) {
-          // Ignore if pointer capture is not active.
-        }
+    }
+    if (pointerId) {
+      try {
+        canvasWrapper.releasePointerCapture(pointerId);
+      } catch (err) {
+        // Ignore if pointer capture is not active.
       }
     }
+  };
+
+  canvasWrapper.addEventListener("pointerup", (e) => {
+    releasePanPointer(e.pointerId);
   });
 
-  canvasWrapper.addEventListener("pointercancel", () => {
-    if (isPanning) {
-      isPanning = false;
-      panStart = null;
-      canvasWrapper.style.cursor = spaceDown ? "grab" : "";
-    }
+  canvasWrapper.addEventListener("pointercancel", (e) => {
+    releasePanPointer(e.pointerId);
   });
 
   window.addEventListener("mousemove", (e) => {

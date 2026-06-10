@@ -28,6 +28,8 @@ let lastMouseDownTime = 0;
 let regionBox = null;
 let isDrawingRegion = false;
 let regionStart = null;
+let planRegions = [];
+let selectedPlanRegionIndex = null;
 
 // Canvas Context
 let canvas = null;
@@ -53,10 +55,12 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // Canvas Viewport Elements
   const detectBtn = document.getElementById("detect-btn");
+  const findPlansBtn = document.getElementById("find-plans-btn");
   const detectRegionBtn = document.getElementById("detect-region-btn");
   const addModeBtn = document.getElementById("add-mode-btn");
   const fitBtn = document.getElementById("fit-btn");
   const saveBtn = document.getElementById("save-btn");
+  const clearPageBtn = document.getElementById("clear-page-btn");
   const canvasPlaceholder = document.getElementById("canvas-placeholder");
   const canvasWrapper = document.getElementById("canvas-wrapper");
   const canvasViewport = document.getElementById("canvas-viewport");
@@ -170,6 +174,25 @@ document.addEventListener("DOMContentLoaded", () => {
     return null;
   }
 
+  function getPlanRegionIndexAtPosition(mouseX, mouseY) {
+    for (let i = planRegions.length - 1; i >= 0; i--) {
+      const [ymin, xmin, ymax, xmax] = planRegions[i].box_px;
+      if (mouseX >= xmin && mouseX <= xmax && mouseY >= ymin && mouseY <= ymax) {
+        return i;
+      }
+    }
+    return null;
+  }
+
+  function selectPlanRegion(index) {
+    if (index === null || !planRegions[index]) return;
+
+    selectedPlanRegionIndex = index;
+    regionBox = planRegions[index].box_px.slice();
+    drawCanvas();
+    updateStatus(`${planRegions[index].label || `Plan ${index + 1}`} selected. Run Detection will use this area only.`);
+  }
+
   function getHandleAtPosition(win, mouseX, mouseY) {
     const [ymin, xmin, ymax, xmax] = win.box_px;
     // Handle width is 8x8 pixels. Tolerance defines hit region radius.
@@ -246,6 +269,31 @@ document.addEventListener("DOMContentLoaded", () => {
           ctx.strokeRect(cx - 5, cy - 5, 10, 10);
         });
       }
+    });
+
+    planRegions.forEach((plan, index) => {
+      const [ymin, xmin, ymax, xmax] = plan.box_px;
+      const width = Math.max(0, xmax - xmin);
+      const height = Math.max(0, ymax - ymin);
+      const isSelected = index === selectedPlanRegionIndex;
+
+      ctx.save();
+      ctx.strokeStyle = isSelected ? "rgba(245, 158, 11, 0.95)" : "rgba(59, 130, 246, 0.8)";
+      ctx.lineWidth = isSelected ? 5 : 3;
+      ctx.setLineDash(isSelected ? [] : [14, 8]);
+      ctx.strokeRect(xmin, ymin, width, height);
+      ctx.restore();
+
+      ctx.fillStyle = isSelected ? "rgba(245, 158, 11, 0.12)" : "rgba(59, 130, 246, 0.08)";
+      ctx.fillRect(xmin, ymin, width, height);
+
+      ctx.font = "bold 18px Outfit";
+      const text = plan.label || `Plan ${index + 1}`;
+      const textWidth = ctx.measureText(text).width;
+      ctx.fillStyle = isSelected ? "rgba(245, 158, 11, 0.95)" : "rgba(37, 99, 235, 0.95)";
+      ctx.fillRect(xmin, Math.max(0, ymin - 30), textWidth + 16, 24);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(text, xmin + 8, Math.max(18, ymin - 11));
     });
 
     if (regionBox) {
@@ -439,6 +487,12 @@ document.addEventListener("DOMContentLoaded", () => {
         };
         console.log(`[DEBUG] Canvas MouseDown: Grabbed Box ${boxIdx} for MOVE action. Offset: x=${dragStartPos.x}, y=${dragStartPos.y}`);
       } else {
+        const planIdx = getPlanRegionIndexAtPosition(mouseX, mouseY);
+        if (planIdx !== null) {
+          selectPlanRegion(planIdx);
+          return;
+        }
+
         // Clicked empty canvas space
         activeBoxIndex = null;
         console.log("[DEBUG] Canvas MouseDown: Clicked background. Deselecting active overlay.");
@@ -589,7 +643,7 @@ document.addEventListener("DOMContentLoaded", () => {
         .finally(() => {
           currentMode = "SELECT";
           detectRegionBtn.classList.remove("active");
-          detectRegionBtn.textContent = "🔲 Detect Region";
+          detectRegionBtn.textContent = "Region Detect Region";
           regionBox = null;
         });
 
@@ -905,10 +959,12 @@ document.addEventListener("DOMContentLoaded", () => {
     
     // Set controls states
     detectBtn.removeAttribute("disabled");
+    findPlansBtn.removeAttribute("disabled");
     detectRegionBtn.removeAttribute("disabled");
     addModeBtn.removeAttribute("disabled");
     fitBtn.removeAttribute("disabled");
     saveBtn.removeAttribute("disabled");
+    clearPageBtn.removeAttribute("disabled");
     
     // Reset canvas tracking states
     activeBoxIndex = null;
@@ -916,10 +972,15 @@ document.addEventListener("DOMContentLoaded", () => {
     addModeBtn.classList.remove("active");
     addModeBtn.textContent = "+ Add Window Mode: Off";
     detectRegionBtn.classList.remove("active");
-    detectRegionBtn.textContent = "🔲 Detect Region";
+    detectRegionBtn.textContent = "Region Detect Region";
     regionBox = null;
     isDrawingRegion = false;
     regionStart = null;
+    planRegions = JSON.parse(JSON.stringify(pageObj.plan_regions || []));
+    selectedPlanRegionIndex = planRegions.length > 0 ? 0 : null;
+    if (selectedPlanRegionIndex !== null) {
+      regionBox = planRegions[selectedPlanRegionIndex].box_px.slice();
+    }
     
     // Reset window boundaries array (copy coordinates to prevent mutated saves without clicks)
     windows = JSON.parse(JSON.stringify(pageObj.windows || []));
@@ -958,13 +1019,17 @@ document.addEventListener("DOMContentLoaded", () => {
     regionBox = null;
     isDrawingRegion = false;
     regionStart = null;
+    planRegions = [];
+    selectedPlanRegionIndex = null;
     bgImage.src = "";
     
     detectBtn.setAttribute("disabled", "true");
+    findPlansBtn.setAttribute("disabled", "true");
     detectRegionBtn.setAttribute("disabled", "true");
     addModeBtn.setAttribute("disabled", "true");
     fitBtn.setAttribute("disabled", "true");
     saveBtn.setAttribute("disabled", "true");
+    clearPageBtn.setAttribute("disabled", "true");
     deleteProjectBtn.setAttribute("disabled", "true");
     
     thumbnailsList.innerHTML = '<div class="no-pages-message">No PDF uploaded yet.</div>';
@@ -980,6 +1045,41 @@ document.addEventListener("DOMContentLoaded", () => {
   fitBtn.addEventListener("click", () => {
     fitToView();
     updateStatus("View fitted to page.");
+  });
+
+  findPlansBtn.addEventListener("click", () => {
+    if (!activeProjectId || !activePageNum) return;
+
+    showLoader("Finding Floor Plans", "Locating large floor-plan regions on this sheet...");
+    updateStatus("Finding floor plan regions...", true);
+
+    fetch(`/api/projects/${activeProjectId}/pages/${activePageNum}/plan-regions`)
+      .then(res => {
+        if (!res.ok) {
+          return res.json().then(errData => {
+            throw new Error(errData.detail || "Plan region detection failed.");
+          });
+        }
+        return res.json();
+      })
+      .then(data => {
+        planRegions = data.plan_regions || [];
+        selectedPlanRegionIndex = planRegions.length > 0 ? 0 : null;
+        regionBox = selectedPlanRegionIndex !== null ? planRegions[selectedPlanRegionIndex].box_px.slice() : null;
+        if (activePageObj) {
+          activePageObj.plan_regions = JSON.parse(JSON.stringify(planRegions));
+        }
+        activeBoxIndex = null;
+        drawCanvas();
+        hideLoader();
+        updateStatus(`Found ${planRegions.length} plan region(s). Click a blue plan box to choose one, then Run Detection.`);
+      })
+      .catch(err => {
+        console.error("[ERROR] Plan region detection failed:", err);
+        hideLoader();
+        updateStatus(`Find Plans failed: ${err.message}`, false, true);
+        alert(`Find Plans failed: ${err.message}`);
+      });
   });
 
   // Toggle ADD Window Mode
@@ -1006,7 +1106,7 @@ document.addEventListener("DOMContentLoaded", () => {
       regionBox = null;
       regionStart = null;
       detectRegionBtn.classList.remove("active");
-      detectRegionBtn.textContent = "🔲 Detect Region";
+      detectRegionBtn.textContent = "Region Detect Region";
       updateStatus("Detect Region OFF: Normal coordinate editor active.");
       drawCanvas();
       return;
@@ -1017,7 +1117,7 @@ document.addEventListener("DOMContentLoaded", () => {
     regionBox = null;
     regionStart = null;
     detectRegionBtn.classList.add("active");
-    detectRegionBtn.textContent = "🔲 Detect Region: On";
+    detectRegionBtn.textContent = "Region Detect Region: On";
     addModeBtn.classList.remove("active");
     addModeBtn.textContent = "+ Add Window Mode: Off";
     updateStatus("Detect Region ON: Draw a box around the region to refine.");
@@ -1027,11 +1127,25 @@ document.addEventListener("DOMContentLoaded", () => {
   // Run AI Detection
   detectBtn.addEventListener("click", () => {
     if (!activeProjectId || !activePageNum) return;
-    
-    showLoader("Analyzing Floor Plan", "Asking Gemini to identify window layouts based on blueprint lines...");
-    updateStatus("Running AI window detection query...", true);
-    
-    fetch(`/api/projects/${activeProjectId}/pages/${activePageNum}/detect`)
+
+    const selectedRegion = selectedPlanRegionIndex !== null && planRegions[selectedPlanRegionIndex]
+      ? planRegions[selectedPlanRegionIndex].box_px
+      : null;
+    const detectUrl = selectedRegion
+      ? `/api/projects/${activeProjectId}/pages/${activePageNum}/detect-region`
+      : `/api/projects/${activeProjectId}/pages/${activePageNum}/detect`;
+    const fetchOptions = selectedRegion
+      ? {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ region: selectedRegion })
+        }
+      : undefined;
+
+    showLoader("Analyzing Floor Plan", selectedRegion ? "Running window detection on the selected plan only..." : "Running window detection on the full sheet...");
+    updateStatus(selectedRegion ? "Running AI detection on selected plan region..." : "Running AI window detection query...", true);
+
+    fetch(detectUrl, fetchOptions)
       .then(res => {
         if (!res.ok) {
           // Read server JSON error detail
@@ -1043,11 +1157,17 @@ document.addEventListener("DOMContentLoaded", () => {
       })
       .then(data => {
         console.log("[DEBUG] AI Detection succeeded. Response:", data);
-        windows = data.windows || [];
+        if (selectedRegion) {
+          windows = windows.concat(data.new_windows || []);
+        } else {
+          windows = data.windows || [];
+        }
         activeBoxIndex = null;
         drawCanvas();
         hideLoader();
-        updateStatus(`Gemini window detection complete. Detected: ${windows.length} windows.`);
+        updateStatus(selectedRegion
+          ? `Selected plan detection added ${data.new_windows?.length ?? 0} windows.`
+          : `Gemini window detection complete. Detected: ${windows.length} windows.`);
       })
       .catch(err => {
         console.error("[ERROR] Window detection failed:", err);
@@ -1104,6 +1224,60 @@ document.addEventListener("DOMContentLoaded", () => {
       updateStatus("Failed to write coordinates to local file.", false, true);
       alert("Error saving corrections. Check network connection.");
     });
+  });
+
+  clearPageBtn.addEventListener("click", () => {
+    if (!activeProjectId || !activePageNum) return;
+
+    if (!confirm("Clear this page and reset saved windows? This cannot be undone for the current project data.")) {
+      return;
+    }
+
+    updateStatus("Clearing current page data...", true);
+
+    fetch(`/api/projects/${activeProjectId}/pages/${activePageNum}/clear`, {
+      method: "POST"
+    })
+      .then(res => {
+        if (!res.ok) {
+          return res.json().then(errData => {
+            throw new Error(errData.detail || "Page clear failed.");
+          });
+        }
+        return res.json();
+      })
+      .then(data => {
+        console.log("[DEBUG] Page clear succeeded.", data);
+        windows = [];
+        activeBoxIndex = null;
+        if (activePageObj) {
+          activePageObj.windows = [];
+          activePageObj.user_corrected = false;
+          activePageObj.plan_regions = [];
+        }
+        planRegions = [];
+        selectedPlanRegionIndex = null;
+        regionBox = null;
+        currentMode = "SELECT";
+        detectRegionBtn.classList.remove("active");
+        detectRegionBtn.textContent = "🔲 Detect Region";
+        drawCanvas();
+        updateStatus("Page cleared. You can now re-run detection or make new corrections.");
+
+        const activeCard = thumbnailsList.querySelector(".thumbnail-card.active");
+        if (activeCard) {
+          activeCard.classList.remove("corrected");
+          const badge = activeCard.querySelector(".thumbnail-badge");
+          if (badge) {
+            badge.textContent = activePageObj && activePageObj.is_floor_plan ? "Floorplan" : "Text / Spec";
+          }
+        }
+      })
+      .catch(err => {
+        console.error("[ERROR] Page clear failed:", err);
+        updateStatus(`Clear failed: ${err.message}`, false, true);
+        alert(`Clear failed: ${err.message}`);
+      });
   });
 
   // Initial load

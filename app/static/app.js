@@ -25,6 +25,9 @@ let isPanning = false;
 let panStart = null;
 let spaceDown = false;
 let lastMouseDownTime = 0;
+let regionBox = null;
+let isDrawingRegion = false;
+let regionStart = null;
 
 // Canvas Context
 let canvas = null;
@@ -50,6 +53,7 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // Canvas Viewport Elements
   const detectBtn = document.getElementById("detect-btn");
+  const detectRegionBtn = document.getElementById("detect-region-btn");
   const addModeBtn = document.getElementById("add-mode-btn");
   const fitBtn = document.getElementById("fit-btn");
   const saveBtn = document.getElementById("save-btn");
@@ -243,6 +247,22 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       }
     });
+
+    if (regionBox) {
+      const [ymin, xmin, ymax, xmax] = regionBox;
+      const width = Math.max(0, xmax - xmin);
+      const height = Math.max(0, ymax - ymin);
+
+      ctx.save();
+      ctx.strokeStyle = "rgba(59, 130, 246, 0.9)";
+      ctx.lineWidth = 3;
+      ctx.setLineDash([10, 6]);
+      ctx.strokeRect(xmin, ymin, width, height);
+      ctx.restore();
+
+      ctx.fillStyle = "rgba(59, 130, 246, 0.15)";
+      ctx.fillRect(xmin, ymin, width, height);
+    }
     
     console.log(`[DEBUG] drawCanvas: Re-drawn layout with ${windows.length} window boundaries.`);
   }
@@ -288,6 +308,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // for canvas's existing guard `if (isPanning || spaceDown) return` to work.
   canvasWrapper.addEventListener("mousedown", (e) => {
     if (e.button !== 0) return; // Only left button should trigger panning behavior.
+    if (currentMode !== "SELECT") return;
 
     const now = Date.now();
     const isRapidSecondClick = (now - lastMouseDownTime) < 300;
@@ -382,6 +403,16 @@ document.addEventListener("DOMContentLoaded", () => {
       drawCanvas();
       return;
     }
+
+    if (currentMode === "DETECT_REGION") {
+      console.log("[DEBUG] Canvas MouseDown: Starting region draw mode.");
+      isDrawingRegion = true;
+      regionStart = { x: mouseX, y: mouseY };
+      regionBox = [mouseY, mouseX, mouseY, mouseX];
+      activeBoxIndex = null;
+      drawCanvas();
+      return;
+    }
     
     if (currentMode === "SELECT") {
       // 1. Check handles of currently selected box first
@@ -424,6 +455,17 @@ document.addEventListener("DOMContentLoaded", () => {
     const mouseX = mousePos.x;
     const mouseY = mousePos.y;
     
+    if (currentMode === "DETECT_REGION" && isDrawingRegion && regionStart) {
+      regionBox = [
+        Math.min(regionStart.y, mouseY),
+        Math.min(regionStart.x, mouseX),
+        Math.max(regionStart.y, mouseY),
+        Math.max(regionStart.x, mouseX)
+      ];
+      drawCanvas();
+      return;
+    }
+
     // Cursor mapping (hover guidelines)
     if (!dragAction) {
       if (activeBoxIndex !== null) {
@@ -441,7 +483,11 @@ document.addEventListener("DOMContentLoaded", () => {
       if (hoverBox !== null) {
         canvas.style.cursor = "move";
       } else {
-        canvas.style.cursor = (currentMode === "ADD") ? "crosshair" : "default";
+        if (currentMode === "ADD" || currentMode === "DETECT_REGION") {
+          canvas.style.cursor = "crosshair";
+        } else {
+          canvas.style.cursor = "default";
+        }
       }
       return;
     }
@@ -485,8 +531,73 @@ document.addEventListener("DOMContentLoaded", () => {
     drawCanvas();
   });
 
-  canvas.addEventListener("mouseup", () => {
-    if (!bgImage.src || !dragAction) return;
+  canvas.addEventListener("mouseup", (e) => {
+    if (!bgImage.src) return;
+
+    if (currentMode === "DETECT_REGION" && isDrawingRegion) {
+      isDrawingRegion = false;
+      regionStart = null;
+
+      const mousePos = getMousePosOnImage(e);
+      regionBox = [
+        Math.min(regionBox[0], mousePos.y),
+        Math.min(regionBox[1], mousePos.x),
+        Math.max(regionBox[2], mousePos.y),
+        Math.max(regionBox[3], mousePos.x)
+      ];
+
+      const [ymin, xmin, ymax, xmax] = regionBox;
+      const width = xmax - xmin;
+      const height = ymax - ymin;
+      if (width < 5 || height < 5) {
+        updateStatus("Region too small. Draw a larger crop to detect windows.", false, true);
+        regionBox = null;
+        drawCanvas();
+        return;
+      }
+
+      showLoader("Detecting Region", "Running Gemini on the selected crop...");
+      updateStatus("Detecting windows inside selected region...", true);
+
+      fetch(`/api/projects/${activeProjectId}/pages/${activePageNum}/detect-region`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ region: regionBox })
+      })
+        .then(res => {
+          if (!res.ok) {
+            return res.json().then(errData => {
+              throw new Error(errData.detail || "Region detection failed.");
+            });
+          }
+          return res.json();
+        })
+        .then(data => {
+          console.log("[DEBUG] Region detection succeeded.", data);
+          windows = windows.concat(data.new_windows || []);
+          activeBoxIndex = null;
+          drawCanvas();
+          hideLoader();
+          updateStatus(`Region detection added ${data.new_windows?.length ?? 0} windows.`);
+        })
+        .catch(err => {
+          console.error("[ERROR] Region detection failed:", err);
+          hideLoader();
+          updateStatus(`Region detection failed: ${err.message}`, false, true);
+          alert(`Region detection failed: ${err.message}`);
+        })
+        .finally(() => {
+          currentMode = "SELECT";
+          detectRegionBtn.classList.remove("active");
+          detectRegionBtn.textContent = "🔲 Detect Region";
+          regionBox = null;
+        });
+
+      drawCanvas();
+      return;
+    }
+
+    if (!dragAction) return;
     
     console.log(`[DEBUG] Canvas MouseUp: Finalizing drag operation '${dragAction}'`);
     dragAction = null;
@@ -794,6 +905,7 @@ document.addEventListener("DOMContentLoaded", () => {
     
     // Set controls states
     detectBtn.removeAttribute("disabled");
+    detectRegionBtn.removeAttribute("disabled");
     addModeBtn.removeAttribute("disabled");
     fitBtn.removeAttribute("disabled");
     saveBtn.removeAttribute("disabled");
@@ -803,6 +915,11 @@ document.addEventListener("DOMContentLoaded", () => {
     currentMode = "SELECT";
     addModeBtn.classList.remove("active");
     addModeBtn.textContent = "+ Add Window Mode: Off";
+    detectRegionBtn.classList.remove("active");
+    detectRegionBtn.textContent = "🔲 Detect Region";
+    regionBox = null;
+    isDrawingRegion = false;
+    regionStart = null;
     
     // Reset window boundaries array (copy coordinates to prevent mutated saves without clicks)
     windows = JSON.parse(JSON.stringify(pageObj.windows || []));
@@ -838,9 +955,13 @@ document.addEventListener("DOMContentLoaded", () => {
     windows = [];
     activeBoxIndex = null;
     lastMouseDownTime = 0;
+    regionBox = null;
+    isDrawingRegion = false;
+    regionStart = null;
     bgImage.src = "";
     
     detectBtn.setAttribute("disabled", "true");
+    detectRegionBtn.setAttribute("disabled", "true");
     addModeBtn.setAttribute("disabled", "true");
     fitBtn.setAttribute("disabled", "true");
     saveBtn.setAttribute("disabled", "true");
@@ -876,6 +997,31 @@ document.addEventListener("DOMContentLoaded", () => {
       addModeBtn.textContent = "+ Add Window Mode: Off";
       updateStatus("Add Mode OFF: Normal coordinate editor active.");
     }
+  });
+
+  detectRegionBtn.addEventListener("click", () => {
+    if (currentMode === "DETECT_REGION") {
+      currentMode = "SELECT";
+      isDrawingRegion = false;
+      regionBox = null;
+      regionStart = null;
+      detectRegionBtn.classList.remove("active");
+      detectRegionBtn.textContent = "🔲 Detect Region";
+      updateStatus("Detect Region OFF: Normal coordinate editor active.");
+      drawCanvas();
+      return;
+    }
+
+    currentMode = "DETECT_REGION";
+    isDrawingRegion = false;
+    regionBox = null;
+    regionStart = null;
+    detectRegionBtn.classList.add("active");
+    detectRegionBtn.textContent = "🔲 Detect Region: On";
+    addModeBtn.classList.remove("active");
+    addModeBtn.textContent = "+ Add Window Mode: Off";
+    updateStatus("Detect Region ON: Draw a box around the region to refine.");
+    drawCanvas();
   });
 
   // Run AI Detection

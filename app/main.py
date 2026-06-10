@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 # Import services
 from app.services.pdf_processor import render_pdf_to_images, classify_pages_with_gemini
-from app.services.gemini_service import detect_windows
+from app.services.gemini_service import detect_windows, detect_windows_in_region
 
 # Load environment variables
 load_dotenv()
@@ -35,6 +35,9 @@ class WindowSaveItem(BaseModel):
 
 class SaveWindowsRequest(BaseModel):
     windows: list[WindowSaveItem]
+
+class DetectRegionRequest(BaseModel):
+    region: list[int]  # [ymin_px, xmin_px, ymax_px, xmax_px]
 
 # -------------------------------------------------------------
 # REST API Endpoints
@@ -321,6 +324,79 @@ async def run_detection(project_id: str, page_num: int):
         raise HTTPException(status_code=500, detail="Failed to save detected window coordinates.")
         
     return {"page_number": page_num, "windows": detected_windows}
+
+@app.post("/api/projects/{project_id}/pages/{page_num}/detect-region")
+async def run_region_detection(project_id: str, page_num: int, payload: DetectRegionRequest = Body(...)):
+    """
+    Crops the page image to the provided pixel region and runs Gemini detection
+    on just that sub-image. Appends new windows to metadata without replacing
+    any existing windows on the page.
+    """
+    print(f"\n[DEBUG] POST /api/projects/{project_id}/pages/{page_num}/detect-region: Region={payload.region}")
+
+    project_path = os.path.join(PROJECTS_DIR, project_id)
+    meta_path = os.path.join(project_path, "metadata.json")
+
+    if not os.path.exists(meta_path):
+        print(f"[ERROR] run_region_detection: Project metadata not found at '{meta_path}'")
+        raise HTTPException(status_code=404, detail="Project metadata not found.")
+
+    try:
+        with open(meta_path, "r") as f:
+            project_meta = json.load(f)
+    except Exception as e:
+        print(f"[ERROR] run_region_detection: Failed to load metadata.json. Error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to load project metadata.")
+
+    target_page = next((p for p in project_meta.get("pages", []) if p.get("page_number") == page_num), None)
+    if not target_page:
+        print(f"[ERROR] run_region_detection: Page {page_num} not found in metadata.")
+        raise HTTPException(status_code=404, detail=f"Page {page_num} not found in project.")
+
+    region = payload.region
+    if len(region) != 4:
+        raise HTTPException(status_code=400, detail="region must be [ymin, xmin, ymax, xmax].")
+
+    ymin, xmin, ymax, xmax = region
+    if xmin >= xmax or ymin >= ymax:
+        raise HTTPException(status_code=400, detail="Invalid region: zero or negative area.")
+
+    target_image_path = os.path.join(project_path, target_page["image_name"])
+
+    # Build few-shot history from prior user-corrected pages.
+    few_shot_history = []
+    for page in project_meta.get("pages", []):
+        if page.get("page_number") < page_num and page.get("user_corrected") == True:
+            hist_image_path = os.path.join(project_path, page["image_name"])
+            few_shot_history.append({
+                "image_path": hist_image_path,
+                "width": page["width"],
+                "height": page["height"],
+                "windows": page.get("windows", [])
+            })
+
+    try:
+        new_windows = detect_windows_in_region(
+            image_path=target_image_path,
+            region=region,
+            few_shot_history=few_shot_history
+        )
+    except Exception as e:
+        print(f"[ERROR] run_region_detection: {str(e)}")
+        raise HTTPException(status_code=502, detail=f"Gemini API Error: {str(e)}")
+
+    existing_windows = target_page.get("windows", [])
+    target_page["windows"] = existing_windows + new_windows
+
+    try:
+        with open(meta_path, "w") as f:
+            json.dump(project_meta, f, indent=2)
+        print(f"[DEBUG] run_region_detection: Appended {len(new_windows)} windows. Total now: {len(target_page['windows'])}")
+    except Exception as e:
+        print(f"[ERROR] run_region_detection: Failed to write metadata.json. Error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to save detected region windows to project metadata.")
+
+    return {"page_number": page_num, "new_windows": new_windows, "total_windows": len(target_page["windows"])}
 
 @app.post("/api/projects/{project_id}/pages/{page_num}/save")
 async def save_windows(project_id: str, page_num: int, payload: SaveWindowsRequest = Body(...)):

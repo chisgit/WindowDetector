@@ -36,6 +36,7 @@ let isDrawingRegion = false;
 let regionStart = null;
 let planRegions = [];
 let selectedPlanRegionIndex = null;
+const snapThreshold = 12;
 
 // Canvas Context
 let canvas = null;
@@ -165,6 +166,74 @@ document.addEventListener("DOMContentLoaded", () => {
     const imageY = Math.round((localY - panY) / zoom);
 
     return { x: imageX, y: imageY };
+  }
+
+  function snapValue(value, targets, threshold = snapThreshold) {
+    let best = value;
+    let bestDistance = threshold;
+
+    targets.forEach((target) => {
+      const distance = Math.abs(value - target);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = target;
+      }
+    });
+
+    return best;
+  }
+
+  function buildSnapTargets(ignoreIndex = null) {
+    const xTargets = [0, bgImage.naturalWidth];
+    const yTargets = [0, bgImage.naturalHeight];
+
+    windows.forEach((win, idx) => {
+      if (idx === ignoreIndex) return;
+      const [ymin, xmin, ymax, xmax] = win.box_px;
+      xTargets.push(xmin, xmax);
+      yTargets.push(ymin, ymax);
+    });
+
+    planRegions.forEach((region) => {
+      const [ymin, xmin, ymax, xmax] = region.box_px;
+      xTargets.push(xmin, xmax);
+      yTargets.push(ymin, ymax);
+    });
+
+    return { xTargets, yTargets };
+  }
+
+  function snapPoint(point, ignoreIndex = null) {
+    const { xTargets, yTargets } = buildSnapTargets(ignoreIndex);
+    return {
+      x: snapValue(point.x, xTargets),
+      y: snapValue(point.y, yTargets)
+    };
+  }
+
+  function finalizeBoxDrag() {
+    if (!dragAction || activeBoxIndex === null) return;
+
+    console.log(`[DEBUG] finalizeBoxDrag: Finalizing drag action '${dragAction}'`);
+    dragAction = null;
+
+    const box = windows[activeBoxIndex].box_px;
+    if (box[0] > box[2]) {
+      [box[0], box[2]] = [box[2], box[0]];
+    }
+    if (box[1] > box[3]) {
+      [box[1], box[3]] = [box[3], box[1]];
+    }
+
+    const width = box[3] - box[1];
+    const height = box[2] - box[0];
+    if (width < 5 || height < 5) {
+      console.log("[DEBUG] finalizeBoxDrag: Bounding box too small, discarding shape.");
+      windows.splice(activeBoxIndex, 1);
+      activeBoxIndex = null;
+    }
+
+    drawCanvas();
   }
 
   // -----------------------------------------------------------
@@ -490,6 +559,7 @@ document.addEventListener("DOMContentLoaded", () => {
       panStart = null;
       canvasWrapper.style.cursor = spaceDown ? "grab" : "";
     }
+    finalizeBoxDrag();
   });
 
   // -----------------------------------------------------------
@@ -626,9 +696,10 @@ document.addEventListener("DOMContentLoaded", () => {
       const height = box[2] - box[0];
       const width = box[3] - box[1];
       
-      // Calculate target location with boundary constraints
-      let newXmin = Math.max(0, Math.min(mouseX - dragStartPos.x, bgImage.naturalWidth - width));
-      let newYmin = Math.max(0, Math.min(mouseY - dragStartPos.y, bgImage.naturalHeight - height));
+      // Snap the cursor point being dragged, then preserve the original offset
+      const snappedMouse = snapPoint({ x: mouseX, y: mouseY }, activeBoxIndex);
+      let newXmin = Math.max(0, Math.min(snappedMouse.x - dragStartPos.x, bgImage.naturalWidth - width));
+      let newYmin = Math.max(0, Math.min(snappedMouse.y - dragStartPos.y, bgImage.naturalHeight - height));
       
       windows[activeBoxIndex].box_px = [
         newYmin,
@@ -639,19 +710,22 @@ document.addEventListener("DOMContentLoaded", () => {
     } 
     else if (dragAction.startsWith("RESIZE_")) {
       const handle = dragAction.replace("RESIZE_", "");
-      
+      const snapped = snapPoint({ x: mouseX, y: mouseY }, activeBoxIndex);
+      const targetX = Math.max(0, Math.min(snapped.x, bgImage.naturalWidth));
+      const targetY = Math.max(0, Math.min(snapped.y, bgImage.naturalHeight));
+
       if (handle === "SE") {
-        box[2] = Math.max(0, Math.min(mouseY, bgImage.naturalHeight)); // ymax
-        box[3] = Math.max(0, Math.min(mouseX, bgImage.naturalWidth));  // xmax
+        box[2] = targetY; // ymax
+        box[3] = targetX;  // xmax
       } else if (handle === "NW") {
-        box[0] = Math.max(0, Math.min(mouseY, bgImage.naturalHeight)); // ymin
-        box[1] = Math.max(0, Math.min(mouseX, bgImage.naturalWidth));  // xmin
+        box[0] = targetY; // ymin
+        box[1] = targetX;  // xmin
       } else if (handle === "NE") {
-        box[0] = Math.max(0, Math.min(mouseY, bgImage.naturalHeight)); // ymin
-        box[3] = Math.max(0, Math.min(mouseX, bgImage.naturalWidth));  // xmax
+        box[0] = targetY; // ymin
+        box[3] = targetX;  // xmax
       } else if (handle === "SW") {
-        box[2] = Math.max(0, Math.min(mouseY, bgImage.naturalHeight)); // ymax
-        box[1] = Math.max(0, Math.min(mouseX, bgImage.naturalWidth));  // xmin
+        box[2] = targetY; // ymax
+        box[1] = targetX;  // xmin
       }
     }
     

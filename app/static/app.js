@@ -37,6 +37,7 @@ let regionStart = null;
 let planRegions = [];
 let selectedPlanRegionIndex = null;
 const snapThreshold = 12;
+const pastePaddingPx = 18;
 
 // Canvas Context
 let canvas = null;
@@ -67,6 +68,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const findPlansBtn = document.getElementById("find-plans-btn");
   const detectRegionBtn = document.getElementById("detect-region-btn");
   const addModeBtn = document.getElementById("add-mode-btn");
+  const copyWindowBtn = document.getElementById("copy-window-btn");
+  const pasteWindowBtn = document.getElementById("paste-window-btn");
   const fitBtn = document.getElementById("fit-btn");
   const saveBtn = document.getElementById("save-btn");
   const clearPageBtn = document.getElementById("clear-page-btn");
@@ -95,6 +98,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const confirmDeleteDesc = document.getElementById("confirm-delete-desc");
   const confirmDeleteCancelBtn = document.getElementById("confirm-delete-cancel-btn");
   const confirmDeleteOkBtn = document.getElementById("confirm-delete-ok-btn");
+  let copiedWindow = null;
 
   // -----------------------------------------------------------
   // Helper Functions: UI Notifications & Loader Control
@@ -138,6 +142,13 @@ document.addEventListener("DOMContentLoaded", () => {
       "gemini": "Gemini Region"
     };
     return labels[backend] || "Legacy Local";
+  }
+
+  function syncClipboardButtons() {
+    const hasActiveWindow = activeBoxIndex !== null && Boolean(windows[activeBoxIndex]);
+    const hasPage = Boolean(bgImage.src && bgImage.naturalWidth);
+    copyWindowBtn.disabled = !hasActiveWindow;
+    pasteWindowBtn.disabled = !hasPage || !copiedWindow;
   }
 
   // -----------------------------------------------------------
@@ -226,6 +237,123 @@ document.addEventListener("DOMContentLoaded", () => {
     };
   }
 
+  function normalizeLabel(label) {
+    return String(label || "").trim().toUpperCase();
+  }
+
+  function makeUniqueWindowLabel(sourceLabel = "W-01") {
+    const existingLabels = new Set(windows.map((win) => normalizeLabel(win.label)));
+    const trimmed = String(sourceLabel || "W-01").trim();
+    const match = trimmed.match(/^(.*?)(\d+)$/);
+    const prefix = match ? match[1] : "W-";
+    const width = match ? match[2].length : 2;
+    let number = match ? parseInt(match[2], 10) + 1 : windows.length + 1;
+
+    while (number < 10000) {
+      const label = `${prefix}${String(number).padStart(width, "0")}`;
+      if (!existingLabels.has(normalizeLabel(label))) {
+        return label;
+      }
+      number += 1;
+    }
+
+    return `${prefix}${Date.now()}`;
+  }
+
+  function boxesOverlap(boxA, boxB, padding = 0) {
+    return !(
+      boxA[3] + padding <= boxB[1] ||
+      boxA[1] - padding >= boxB[3] ||
+      boxA[2] + padding <= boxB[0] ||
+      boxA[0] - padding >= boxB[2]
+    );
+  }
+
+  function clampBoxToPage(box) {
+    const [ymin, xmin, ymax, xmax] = box;
+    const width = xmax - xmin;
+    const height = ymax - ymin;
+    const pageWidth = bgImage.naturalWidth || width;
+    const pageHeight = bgImage.naturalHeight || height;
+    const clampedX = Math.max(0, Math.min(xmin, pageWidth - width));
+    const clampedY = Math.max(0, Math.min(ymin, pageHeight - height));
+    return [clampedY, clampedX, clampedY + height, clampedX + width];
+  }
+
+  function findPasteBox(sourceBox) {
+    const [ymin, xmin, ymax, xmax] = sourceBox;
+    const width = xmax - xmin;
+    const height = ymax - ymin;
+    const pageWidth = bgImage.naturalWidth || xmax;
+    const pageHeight = bgImage.naturalHeight || ymax;
+    const maxX = Math.max(0, pageWidth - width);
+    const x = Math.max(0, Math.min(xmin, maxX));
+    const candidates = [];
+
+    for (let y = ymax + pastePaddingPx; y + height <= pageHeight; y += height + pastePaddingPx) {
+      candidates.push([y, x, y + height, x + width]);
+    }
+
+    for (let y = ymin - pastePaddingPx - height; y >= 0; y -= height + pastePaddingPx) {
+      candidates.push([y, x, y + height, x + width]);
+    }
+
+    for (let xRight = xmax + pastePaddingPx; xRight + width <= pageWidth; xRight += width + pastePaddingPx) {
+      candidates.push([ymin, xRight, ymin + height, xRight + width]);
+    }
+
+    for (let xLeft = xmin - pastePaddingPx - width; xLeft >= 0; xLeft -= width + pastePaddingPx) {
+      candidates.push([ymin, xLeft, ymin + height, xLeft + width]);
+    }
+
+    const clearCandidate = candidates.find((candidate) => {
+      return !windows.some((win) => boxesOverlap(candidate, win.box_px, 2));
+    });
+
+    if (clearCandidate) {
+      return clearCandidate;
+    }
+
+    return clampBoxToPage([ymax + pastePaddingPx, x, ymax + pastePaddingPx + height, x + width]);
+  }
+
+  function copySelectedWindowBox() {
+    if (activeBoxIndex === null || !windows[activeBoxIndex]) {
+      updateStatus("Select a window box before copying.", false, true);
+      return;
+    }
+
+    copiedWindow = {
+      sourceIndex: activeBoxIndex,
+      window: JSON.parse(JSON.stringify(windows[activeBoxIndex]))
+    };
+    syncClipboardButtons();
+    updateStatus(`${windows[activeBoxIndex].label || "Window"} copied. Paste will create a new box below it.`);
+  }
+
+  function pasteCopiedWindowBox() {
+    if (!copiedWindow || !bgImage.src) {
+      updateStatus("Copy a window box before pasting.", false, true);
+      return;
+    }
+
+    const sourceStillExists =
+      windows[copiedWindow.sourceIndex] &&
+      normalizeLabel(windows[copiedWindow.sourceIndex].label) === normalizeLabel(copiedWindow.window.label);
+    const sourceWindow = sourceStillExists ? windows[copiedWindow.sourceIndex] : copiedWindow.window;
+    const newWindow = JSON.parse(JSON.stringify(copiedWindow.window));
+
+    newWindow.label = makeUniqueWindowLabel(sourceWindow.label);
+    newWindow.box_px = findPasteBox(sourceWindow.box_px);
+    windows.push(newWindow);
+    activeBoxIndex = windows.length - 1;
+    currentMode = "SELECT";
+    addModeBtn.classList.remove("active");
+    addModeBtn.textContent = "+ Add Window Mode: Off";
+    drawCanvas();
+    updateStatus(`${newWindow.label} pasted below ${sourceWindow.label || "the copied window"} and selected.`);
+  }
+
   function finalizeBoxDrag() {
     if (!dragAction || activeBoxIndex === null) return;
 
@@ -302,6 +430,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // -----------------------------------------------------------
   function drawCanvas() {
     if (!bgImage.src) {
+      syncClipboardButtons();
       canvasPlaceholder.style.display = "flex";
       return;
     }
@@ -403,6 +532,7 @@ document.addEventListener("DOMContentLoaded", () => {
       ctx.fillRect(xmin, ymin, width, height);
     }
     
+    syncClipboardButtons();
     console.log(`[DEBUG] drawCanvas: Re-drawn layout with ${windows.length} window boundaries.`);
   }
 
@@ -429,7 +559,23 @@ document.addEventListener("DOMContentLoaded", () => {
   // Space + Drag Panning
   // -----------------------------------------------------------
   window.addEventListener("keydown", (e) => {
-    if (e.code === "Space" && !e.target.matches("input, select, textarea")) {
+    const isTyping = e.target instanceof Element && e.target.matches("input, select, textarea");
+
+    if (!isTyping && (e.ctrlKey || e.metaKey)) {
+      const key = e.key.toLowerCase();
+      if (key === "c") {
+        copySelectedWindowBox();
+        e.preventDefault();
+        return;
+      }
+      if (key === "v") {
+        pasteCopiedWindowBox();
+        e.preventDefault();
+        return;
+      }
+    }
+
+    if (e.code === "Space" && !isTyping) {
       spaceDown = true;
       canvasWrapper.style.cursor = "grab";
       e.preventDefault();
@@ -1200,13 +1346,17 @@ document.addEventListener("DOMContentLoaded", () => {
     findPlansBtn.setAttribute("disabled", "true");
     detectRegionBtn.setAttribute("disabled", "true");
     addModeBtn.setAttribute("disabled", "true");
+    copyWindowBtn.setAttribute("disabled", "true");
+    pasteWindowBtn.setAttribute("disabled", "true");
     fitBtn.setAttribute("disabled", "true");
     saveBtn.setAttribute("disabled", "true");
     clearPageBtn.setAttribute("disabled", "true");
     deleteProjectBtn.setAttribute("disabled", "true");
+    copiedWindow = null;
     
     thumbnailsList.innerHTML = '<div class="no-pages-message">No PDF uploaded yet.</div>';
     canvasPlaceholder.style.display = "flex";
+    syncClipboardButtons();
     updateStatus("System Reset. Please select or upload a project.");
   }
 
@@ -1222,6 +1372,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
   backendSelect.addEventListener("change", () => {
     updateStatus(`Detector set to ${getDetectorLabel()}.`);
+  });
+
+  copyWindowBtn.addEventListener("click", () => {
+    copySelectedWindowBox();
+  });
+
+  pasteWindowBtn.addEventListener("click", () => {
+    pasteCopiedWindowBox();
   });
 
   findPlansBtn.addEventListener("click", () => {

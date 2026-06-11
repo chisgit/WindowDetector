@@ -274,7 +274,9 @@ def stantec_wall_band_windows(crop:np.ndarray, threshold:int=210, save_debug_dir
         # Group cap strokes by the actual cap x/width so dimension ticks do not pair with window caps.
         for cy,x,y,w,h in sorted(caps,key=lambda c:(c[1],c[3],c[0])):
             for g in groups:
-                if abs(x-g['x'])<=12 and abs(w-g['w'])<=20:
+                span_overlap=min(x+w,g['x']+g['w'])-max(x,g['x'])
+                similar_span=span_overlap >= min(w,g['w'])*0.25
+                if abs(x-g['x'])<=18 and (abs(w-g['w'])<=45 or similar_span):
                     g['caps'].append((cy,x,y,w,h)); g['x']=0.8*g['x']+0.2*x; g['w']=0.8*g['w']+0.2*w; break
             else:
                 groups.append({'x':float(x),'w':float(w),'caps':[(cy,x,y,w,h)]})
@@ -721,6 +723,108 @@ def split_long_vertical_raw_to_upper_caps(crop:np.ndarray, raw:list[Candidate], 
         recovered.append(cand)
     return recovered
 
+
+def recover_compact_vertical_service_caps(crop:np.ndarray, raw:list[Candidate], existing:list[Candidate], text_mask:np.ndarray|None=None)->list[Candidate]:
+    """Recover compact vertical window caps interrupted by fixtures/hatching.
+
+    Service rooms can place appliances, hatch fills, or dashed cabinetry right
+    against the exterior wall. The normal wall-band detector then misses the
+    short vertical window because one cap stroke is fragmented or longer than
+    the other. This pass looks for paired horizontal cap strokes crossing the
+    same long vertical wall rail and builds a compact vertical candidate from
+    the narrow cap evidence.
+    """
+    gray=cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    bw=cv2.threshold(gray,245,255,cv2.THRESH_BINARY_INV)[1]
+    if text_mask is not None:
+        bw=cv2.bitwise_and(bw, cv2.bitwise_not(text_mask))
+
+    hmask=cv2.morphologyEx(bw, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT,(8,1)))
+    vlong=cv2.morphologyEx(bw, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT,(1,70)))
+    hst=[(x,y,w,h,a) for x,y,w,h,a in connected_components(hmask) if 8 <= w <= 80 and 1 <= h <= 8]
+    walls=[(x,y,w,h) for x,y,w,h,a in connected_components(vlong) if 1 <= w <= 14 and h >= 135]
+    recovered:list[Candidate]=[]
+
+    for wx,wy,ww,wh in walls:
+        axis=wx+ww/2.0
+        caps=[]
+        for x,y,w,h,a in hst:
+            if y < wy-25 or y > wy+wh+25:
+                continue
+            reaches_axis = x <= axis+9 and x+w >= axis-9
+            close_endpoint = min(abs(x-axis), abs(x+w-axis)) <= 20
+            if not (reaches_axis or close_endpoint):
+                continue
+            if text_mask is not None and density(text_mask,x-3,y-3,x+w+3,y+h+3) > 0.22:
+                continue
+            caps.append((x,y,w,h))
+
+        caps=sorted(caps,key=lambda c:(c[1],c[0]))
+        for i,(x1,y1,w1,h1) in enumerate(caps):
+            for x2,y2,w2,h2 in caps[i+1:]:
+                gap=(y2+h2/2.0)-(y1+h1/2.0)
+                if gap < 42:
+                    continue
+                if gap > 100:
+                    break
+                # Use the tighter cap stroke when one side is widened by an
+                # appliance/fixture edge; otherwise center on the wall axis.
+                narrow=(x1,y1,w1,h1) if w1 <= w2 else (x2,y2,w2,h2)
+                if narrow[2] <= 34:
+                    cand_x=int(narrow[0])
+                    cand_w=int(narrow[2])
+                else:
+                    cand_w=20
+                    cand_x=int(round(axis-cand_w/2))
+                cand_y=int(min(y1,y2))
+                cand_h=int(max(y1+h1,y2+h2)-cand_y)
+                cand=Candidate(cand_x,cand_y,cand_w,cand_h,'vertical','vertical_service_cap_recovery',1.0,'unknown')
+                if not (12 <= cand.w <= 34 and 45 <= cand.h <= 105):
+                    continue
+                if text_mask is not None and density(text_mask,cand.x-4,cand.y-4,cand.x+cand.w+4,cand.y+cand.h+4) > 0.04:
+                    continue
+                wall_ink=density(vlong,cand.x-8,cand.y,cand.x+cand.w+8,cand.y+cand.h)
+                if wall_ink < 0.015:
+                    continue
+                H,W=bw.shape[:2]
+                left_to_edge=density(bw,0,cand.y-30,cand.x-30,cand.y+cand.h+30)
+                right_to_edge=density(bw,cand.x+cand.w+30,cand.y-30,W,cand.y+cand.h+30)
+                if min(left_to_edge,right_to_edge) > 0.015:
+                    continue
+                side_context=max(
+                    density(bw,cand.x-90,cand.y-20,cand.x-8,cand.y+cand.h+20),
+                    density(bw,cand.x+cand.w+8,cand.y-20,cand.x+cand.w+90,cand.y+cand.h+20),
+                )
+                vertical_context=max(
+                    density(bw,cand.x-25,cand.y-80,cand.x+cand.w+25,cand.y-10),
+                    density(bw,cand.x-25,cand.y+cand.h+10,cand.x+cand.w+25,cand.y+cand.h+80),
+                )
+                if side_context < 0.08 or vertical_context < 0.15:
+                    continue
+                same_axis_raw=any(
+                    r.orientation=='vertical' and abs(cand.cx-r.cx)<32
+                    for r in raw
+                )
+                if not same_axis_raw:
+                    continue
+                near_existing=False
+                for e in existing+raw:
+                    if e.orientation != 'vertical' or abs(cand.cx-e.cx) >= 34:
+                        continue
+                    vertical_gap=max(0, max(e.y-(cand.y+cand.h), cand.y-(e.y+e.h)))
+                    if vertical_gap < 66:
+                        near_existing=True
+                        break
+                if near_existing:
+                    continue
+                if any(rect_iou(cand,e)>0.08 or (abs(cand.cx-e.cx)<28 and abs(cand.cy-e.cy)<35) for e in existing+recovered):
+                    continue
+                recovered.append(cand)
+                break
+
+    return recovered
+
+
 def promote_upper_component_and_reject_wall_space(crop:np.ndarray, boxes:list[Candidate], raw:list[Candidate], text_mask:np.ndarray|None=None)->list[Candidate]:
     """Generic clean-up for vertical wall-band candidates.
 
@@ -863,6 +967,59 @@ def horizontal_row_band_count(crop:np.ndarray, c:Candidate, text_mask:np.ndarray
     return sum(1 for a,b in bands if b-a+1>=1)
 
 
+def has_two_rail_horizontal_cap(crop:np.ndarray, c:Candidate, text_mask:np.ndarray|None=None)->bool:
+    """Detect horizontal windows drawn as two strong rails with mullions.
+
+    Some Stantec symbols, especially longer two/three-pane exterior spans, do
+    not expose the three-band/pane-segment signature used by the tighter cleanup
+    path. They still have two long, parallel cap rails. Text and room tags are
+    rejected by the native PDF text mask before this check runs.
+    """
+    if c.orientation != 'horizontal':
+        return False
+    gray=cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    bw=cv2.threshold(gray,245,255,cv2.THRESH_BINARY_INV)[1]
+    if text_mask is not None:
+        bw=cv2.bitwise_and(bw, cv2.bitwise_not(text_mask))
+    H,W=bw.shape[:2]
+    roi=bw[max(0,c.y-4):min(H,c.y+c.h+4), max(0,c.x):min(W,c.x+c.w)]
+    if roi.size == 0 or roi.shape[1] < 55:
+        return False
+    proj=roi.sum(axis=1)/255.0
+    thresh=max(2.0, roi.shape[1]*0.32)
+    inds=np.where(proj>=thresh)[0]
+    if len(inds)==0:
+        return False
+    bands=[]
+    st=prev=int(inds[0])
+    for val0 in inds[1:]:
+        val=int(val0)
+        if val>prev+2:
+            bands.append((st,prev)); st=val
+        prev=val
+    bands.append((st,prev))
+    meaningful=[(a,b) for a,b in bands if b-a+1>=1]
+    if len(meaningful) < 2:
+        return False
+    top=meaningful[0]
+    bottom=meaningful[-1]
+    rail_gap=bottom[0]-top[1]
+    if not (5 <= rail_gap <= 24):
+        return False
+    top_cov=max(proj[top[0]:top[1]+1])/max(1,c.w)
+    bottom_cov=max(proj[bottom[0]:bottom[1]+1])/max(1,c.w)
+    if min(top_cov,bottom_cov) < 0.42:
+        return False
+    # At least one vertical separator/tick or a long enough uninterrupted span
+    # should be present. This avoids accepting tiny wall dashes as windows while
+    # allowing single-piece two-rail symbols.
+    mid=roi[max(0,top[1]):min(roi.shape[0],bottom[0]+1),:]
+    col_proj=mid.sum(axis=0)/255.0 if mid.size else np.array([])
+    tick_cols=np.where(col_proj>=max(1.0, mid.shape[0]*0.45))[0] if mid.size else []
+    has_tick=len(tick_cols)>0
+    return has_tick or c.w >= 75
+
+
 def has_two_horizontal_panes(crop:np.ndarray, c:Candidate, text_mask:np.ndarray|None=None)->bool:
     panes=horizontal_pane_segments_from_ink(crop,c,text_mask)
     if len(panes) < 2:
@@ -935,6 +1092,19 @@ def _near_vertical_raw_door_jamb(candidate:Candidate, raw:list[Candidate])->bool
     return False
 
 
+def _has_horizontal_door_jamb_context(crop:np.ndarray, candidate:Candidate, text_mask:np.ndarray|None=None)->bool:
+    gray=cv2.cvtColor(crop,cv2.COLOR_BGR2GRAY)
+    bw=cv2.threshold(gray,245,255,cv2.THRESH_BINARY_INV)[1]
+    if text_mask is not None:
+        bw=cv2.bitwise_and(bw, cv2.bitwise_not(text_mask))
+    vmask=cv2.morphologyEx(bw, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT,(1,8)))
+    cx1=candidate.x+int(candidate.w*0.35)
+    cx2=candidate.x+int(candidate.w*0.65)
+    upper=density(vmask,cx1,candidate.y-105,cx2,candidate.y-5)
+    lower=density(vmask,cx1,candidate.y+candidate.h+5,cx2,candidate.y+candidate.h+105)
+    return max(upper,lower) > 0.035
+
+
 def recover_compact_horizontal_cap_windows(crop:np.ndarray, raw:list[Candidate], existing:list[Candidate], text_mask:np.ndarray|None=None)->list[Candidate]:
     """
     Recover compact single-panel horizontal window symbols that are valid wall
@@ -954,19 +1124,33 @@ def recover_compact_horizontal_cap_windows(crop:np.ndarray, raw:list[Candidate],
     for r in raw:
         if r.orientation != 'horizontal':
             continue
-        if not (55 <= r.w <= 115 and 8 <= r.h <= 24):
+        compact_cap=55 <= r.w <= 115 and 8 <= r.h <= 24
+        two_rail_cap=70 <= r.w <= 235 and 8 <= r.h <= 24 and has_two_rail_horizontal_cap(crop,r,text_mask)
+        if not (compact_cap or two_rail_cap):
             continue
         if text_mask is not None and density(text_mask,r.x-4,r.y-4,r.x+r.w+4,r.y+r.h+4) > 0.02:
             continue
-        if horizontal_row_band_count(crop,r,text_mask) < 3:
+        if compact_cap and not two_rail_cap and horizontal_row_band_count(crop,r,text_mask) < 3:
             continue
         if _near_vertical_raw_door_jamb(r,raw):
             continue
+        if two_rail_cap and _has_horizontal_door_jamb_context(crop,r,text_mask):
+            continue
 
         t=trim_horizontal_to_pane_evidence(crop,r,text_mask)
-        cand=t if t is not None else Candidate(r.x,r.y,r.w,r.h,'horizontal',r.source+'+compact_cap_recovery',r.score,r.exterior_side)
+        cand=t if t is not None else Candidate(
+            r.x,
+            r.y,
+            r.w,
+            r.h,
+            'horizontal',
+            r.source+('+two_rail_recovery' if two_rail_cap else '+compact_cap_recovery'),
+            r.score,
+            r.exterior_side,
+        )
         if cand.w < 45 or cand.w > 120:
-            continue
+            if not (two_rail_cap and 70 <= cand.w <= 235):
+                continue
         if not _is_duplicate_candidate(cand, existing+recovered):
             recovered.append(cand)
 
@@ -1171,6 +1355,8 @@ def run_stantec(pdf:Path, pages:list[int], outdir:Path, dpi:int, group_homes:lis
             filtered=promote_upper_component_and_reject_wall_space(crop, filtered, raw, text_mask=text_mask)
             for rec in split_long_vertical_raw_to_upper_caps(crop, raw, filtered, text_mask=text_mask):
                 filtered.append(rec)
+            for rec in recover_compact_vertical_service_caps(crop, raw, filtered, text_mask=text_mask):
+                filtered.append(rec)
             filtered=refine_horizontal_two_pane_from_raw(crop, filtered, raw, text_mask=text_mask)
             filtered=suppress_overlaps(filtered, tol=28)
             if save_raw:
@@ -1246,6 +1432,8 @@ def _run_stantec_crop(crop:np.ndarray, pdf:Path, page_num:int, zoom:float, crop_
     filtered=reject_space_after_window_artifacts(crop, filtered, text_mask=text_mask)
     filtered=promote_upper_component_and_reject_wall_space(crop, filtered, raw, text_mask=text_mask)
     for rec in split_long_vertical_raw_to_upper_caps(crop, raw, filtered, text_mask=text_mask):
+        filtered.append(rec)
+    for rec in recover_compact_vertical_service_caps(crop, raw, filtered, text_mask=text_mask):
         filtered.append(rec)
     filtered=refine_horizontal_two_pane_from_raw(crop, filtered, raw, text_mask=text_mask)
     return suppress_overlaps(filtered, tol=28)

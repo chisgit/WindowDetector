@@ -11,9 +11,10 @@ from dotenv import load_dotenv
 
 # Import services
 from app.services.pdf_processor import render_pdf_to_images, classify_pages_locally
-from app.services.gemini_service import detect_windows
+from app.services.gemini_service import detect_windows, detect_windows_in_region
 from app.services.plan_region_detector import detect_floor_plan_regions
 from app.services.local_window_detector import detect_windows_locally
+from app.services.stantec_detector_core import detect_stantec_plan_regions, detect_stantec_windows_in_region, is_stantec_pdf
 
 # Load environment variables
 load_dotenv()
@@ -42,6 +43,7 @@ class SaveWindowsRequest(BaseModel):
 class DetectRegionRequest(BaseModel):
     region: list[int]  # [ymin_px, xmin_px, ymax_px, xmax_px]
     replace: bool = False
+    backend: str = "legacy-local"
 
 
 def append_correction_log(project_path: str, event: dict):
@@ -412,8 +414,21 @@ async def run_plan_region_detection(project_id: str, page_num: int):
 
     target_image_path = os.path.join(project_path, target_page["image_name"])
 
+    original_pdf_path = os.path.join(project_path, "original.pdf")
+
     try:
-        regions = detect_floor_plan_regions(target_image_path)
+        regions = []
+        if os.path.exists(original_pdf_path):
+            regions = detect_stantec_plan_regions(
+                original_pdf_path,
+                page_num,
+                page_image_path=target_image_path,
+                dpi=PDF_RENDER_DPI,
+            )
+            if regions:
+                print(f"[DEBUG] run_plan_region_detection: Using {len(regions)} Stantec group-home title region(s).")
+        if not regions:
+            regions = detect_floor_plan_regions(target_image_path)
     except Exception as e:
         print(f"[ERROR] run_plan_region_detection: Failed to detect plan regions. Error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to detect plan regions: {str(e)}")
@@ -433,9 +448,8 @@ async def run_plan_region_detection(project_id: str, page_num: int):
 @app.post("/api/projects/{project_id}/pages/{page_num}/detect-region")
 async def run_region_detection(project_id: str, page_num: int, payload: DetectRegionRequest = Body(...)):
     """
-    Backward-compatible regional detection endpoint. This intentionally uses
-    the same local OpenCV detector as /detect-local-region so no regional UI
-    flow depends on Gemini.
+    Backward-compatible regional detection endpoint. It delegates to the
+    selectable backend endpoint while preserving the older route.
     """
     print(f"\n[DEBUG] POST /api/projects/{project_id}/pages/{page_num}/detect-region: Redirecting to local detector.")
     return await run_local_region_detection(project_id, page_num, payload)
@@ -443,10 +457,16 @@ async def run_region_detection(project_id: str, page_num: int, payload: DetectRe
 @app.post("/api/projects/{project_id}/pages/{page_num}/detect-local-region")
 async def run_local_region_detection(project_id: str, page_num: int, payload: DetectRegionRequest = Body(...)):
     """
-    Runs deterministic local OpenCV detection on a selected plan region.
-    This avoids external model availability and gives us tuneable output.
+    Runs the selected detector backend on a selected plan region and persists
+    the result into project metadata.
     """
-    print(f"\n[DEBUG] POST /api/projects/{project_id}/pages/{page_num}/detect-local-region: Region={payload.region}")
+    backend = payload.backend.strip().lower()
+    allowed_backends = {"legacy-local", "deterministic-stantec", "gemini"}
+    if backend not in allowed_backends:
+        raise HTTPException(status_code=400, detail=f"Unsupported detector backend: {payload.backend}")
+    requested_backend = backend
+
+    print(f"\n[DEBUG] POST /api/projects/{project_id}/pages/{page_num}/detect-local-region: Backend={backend} Region={payload.region}")
 
     project_path = os.path.join(PROJECTS_DIR, project_id)
     meta_path = os.path.join(project_path, "metadata.json")
@@ -476,40 +496,95 @@ async def run_local_region_detection(project_id: str, page_num: int, payload: De
         raise HTTPException(status_code=400, detail="Invalid region: zero or negative area.")
 
     target_image_path = os.path.join(project_path, target_page["image_name"])
+    original_pdf_path = os.path.join(project_path, "original.pdf")
+
+    if backend == "deterministic-stantec":
+        if not os.path.exists(original_pdf_path):
+            print("[WARNING] run_local_region_detection: Original PDF missing, falling back to legacy-local backend.")
+            backend = "legacy-local"
+        elif not is_stantec_pdf(original_pdf_path, pages=[page_num]):
+            print("[DEBUG] run_local_region_detection: PDF does not match Stantec profile, falling back to legacy-local backend.")
+            backend = "legacy-local"
 
     templates = None
     if target_page.get("user_corrected") and target_page.get("windows"):
-        corrected_windows = [
-            win for win in target_page.get("windows", [])
-            if isinstance(win.get("label"), str) and win["label"].strip().upper() == "W-09"
-        ]
+        corrected_windows = []
+        for win in target_page.get("windows", []):
+            label = win.get("label")
+            if not isinstance(label, str):
+                continue
+            normalized = label.strip().upper().replace(" ", "")
+            if normalized == "W-09" or normalized.endswith("-09") or normalized.endswith("09"):
+                corrected_windows.append(win)
+
         if corrected_windows:
             templates = corrected_windows
+            print(f"[DEBUG] run_local_region_detection: Using corrected template windows: {[w['label'] for w in templates]}")
         elif len(target_page.get("windows", [])) == 1:
             templates = target_page.get("windows")
+            print("[DEBUG] run_local_region_detection: No W-09 label found, using the single corrected window as template.")
 
     try:
-        new_windows = detect_windows_locally(target_image_path, region=region, templates=templates)
+        if backend == "deterministic-stantec":
+            new_windows = detect_stantec_windows_in_region(
+                original_pdf_path,
+                page_num,
+                target_image_path,
+                region,
+                dpi=PDF_RENDER_DPI,
+            )
+        elif backend == "gemini":
+            api_key = os.getenv("GEMINI_API_KEY")
+            if not api_key or api_key.strip() == "":
+                raise ValueError("Google API Key missing. Please configure GEMINI_API_KEY in your .env file.")
+
+            few_shot_history = []
+            for page in project_meta.get("pages", []):
+                if page.get("page_number") == page_num:
+                    continue
+                if page.get("user_corrected") == True:
+                    few_shot_history.append({
+                        "image_path": os.path.join(project_path, page["image_name"]),
+                        "width": page["width"],
+                        "height": page["height"],
+                        "windows": page.get("windows", []),
+                    })
+            new_windows = detect_windows_in_region(
+                target_image_path,
+                region,
+                few_shot_history=few_shot_history,
+            )
+        else:
+            new_windows = detect_windows_locally(target_image_path, region=region, templates=templates)
     except Exception as e:
         print(f"[ERROR] run_local_region_detection: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Local detection error: {str(e)}")
+        status_code = 502 if backend == "gemini" else 500
+        raise HTTPException(status_code=status_code, detail=f"{backend} detection error: {str(e)}")
 
     existing_windows = target_page.get("windows", [])
     if target_page.get("user_corrected"):
         target_page["windows"] = _append_non_overlapping_windows(existing_windows, new_windows)
     else:
         target_page["windows"] = new_windows if payload.replace else existing_windows + new_windows
+    target_page["last_detector_backend"] = backend
 
     try:
         with open(meta_path, "w") as f:
             json.dump(project_meta, f, indent=2)
         action = "Replaced with" if payload.replace else "Appended"
-        print(f"[DEBUG] run_local_region_detection: {action} {len(new_windows)} local windows. Total now: {len(target_page['windows'])}")
+        print(f"[DEBUG] run_local_region_detection: {action} {len(new_windows)} {backend} windows. Total now: {len(target_page['windows'])}")
     except Exception as e:
         print(f"[ERROR] run_local_region_detection: Failed to write metadata.json. Error: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to save local detection windows to project metadata.")
 
-    return {"page_number": page_num, "new_windows": new_windows, "total_windows": len(target_page["windows"])}
+    return {
+        "page_number": page_num,
+        "requested_backend": requested_backend,
+        "backend": backend,
+        "new_windows": new_windows,
+        "windows": target_page["windows"],
+        "total_windows": len(target_page["windows"]),
+    }
 
 @app.post("/api/projects/{project_id}/pages/{page_num}/save")
 async def save_windows(project_id: str, page_num: int, payload: SaveWindowsRequest = Body(...)):

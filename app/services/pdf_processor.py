@@ -208,6 +208,14 @@ def _heuristic_fallback(pages_metadata: list[dict]) -> list[dict]:
     return pages_metadata
 
 
+def classify_pages_locally(pages_metadata: list[dict]) -> list[dict]:
+    """
+    Local-only page classification used by the app upload path. It avoids
+    external model quota/availability so uploads remain reliable.
+    """
+    return _heuristic_fallback(pages_metadata)
+
+
 def is_floor_plan_page(page_metadata: dict) -> bool:
     """
     Backward-compatible single-page floor-plan heuristic used by scratch tests

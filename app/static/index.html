@@ -60,6 +60,11 @@
             <button id="detect-btn" class="btn action-btn secondary" disabled>
               <span class="btn-icon">Local</span> Run Detection
             </button>
+            <select id="backend-select" class="select-input backend-select" disabled title="Detection backend">
+              <option value="deterministic-stantec">Deterministic AB/Stantec</option>
+              <option value="legacy-local">Legacy Local</option>
+              <option value="gemini">Gemini Region</option>
+            </select>
             <button id="find-plans-btn" class="btn action-btn secondary" disabled>
               <span class="btn-icon">Plans</span> Find Plans
             </button>
@@ -102,7 +107,7 @@
         <span class="status-dot green" id="status-dot"></span>
         <span id="status-text">System Initialized and Ready.</span>
       </div>
-      <div class="footer-meta">Local geometry detection</div>
+      <div class="footer-meta">Selectable detection backend</div>
     </footer>
   </div>
 

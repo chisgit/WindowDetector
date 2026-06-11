@@ -63,6 +63,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Canvas Viewport Elements
   const aiDetectBtn = document.getElementById("ai-detect-btn");
   const detectBtn = document.getElementById("detect-btn");
+  const backendSelect = document.getElementById("backend-select");
   const findPlansBtn = document.getElementById("find-plans-btn");
   const detectRegionBtn = document.getElementById("detect-region-btn");
   const addModeBtn = document.getElementById("add-mode-btn");
@@ -124,6 +125,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function hideLoader() {
     loadingOverlay.classList.add("hidden");
+  }
+
+  function getDetectorBackend() {
+    return backendSelect?.value || "legacy-local";
+  }
+
+  function getDetectorLabel(backend = getDetectorBackend()) {
+    const labels = {
+      "deterministic-stantec": "Deterministic AB/Stantec",
+      "legacy-local": "Legacy Local",
+      "gemini": "Gemini Region"
+    };
+    return labels[backend] || "Legacy Local";
   }
 
   // -----------------------------------------------------------
@@ -758,13 +772,15 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      showLoader("Detecting Region", "Running local detection on the selected crop...");
-      updateStatus("Detecting windows inside selected region locally...", true);
+      const backend = getDetectorBackend();
+      const detectorLabel = getDetectorLabel();
+      showLoader("Detecting Region", `Running ${detectorLabel} on the selected crop...`);
+      updateStatus(`Detecting windows with ${detectorLabel}...`, true);
 
       fetch(`/api/projects/${activeProjectId}/pages/${activePageNum}/detect-local-region`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ region: regionBox })
+        body: JSON.stringify({ region: regionBox, backend })
       })
         .then(res => {
           if (!res.ok) {
@@ -776,11 +792,12 @@ document.addEventListener("DOMContentLoaded", () => {
         })
         .then(data => {
           console.log("[DEBUG] Region detection succeeded.", data);
-          windows = windows.concat(data.new_windows || []);
+          windows = data.windows || windows.concat(data.new_windows || []);
           activeBoxIndex = null;
           drawCanvas();
           hideLoader();
-          updateStatus(`Region detection added ${data.new_windows?.length ?? 0} windows.`);
+          const actualLabel = getDetectorLabel(data.backend || backend);
+          updateStatus(`${actualLabel} added ${data.new_windows?.length ?? 0} windows. Total now ${data.total_windows}.`);
         })
         .catch(err => {
           console.error("[ERROR] Region detection failed:", err);
@@ -1112,6 +1129,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Set controls states
     aiDetectBtn.removeAttribute("disabled");
     detectBtn.removeAttribute("disabled");
+    backendSelect.removeAttribute("disabled");
     findPlansBtn.removeAttribute("disabled");
     detectRegionBtn.removeAttribute("disabled");
     addModeBtn.removeAttribute("disabled");
@@ -1178,6 +1196,7 @@ document.addEventListener("DOMContentLoaded", () => {
     
     aiDetectBtn.setAttribute("disabled", "true");
     detectBtn.setAttribute("disabled", "true");
+    backendSelect.setAttribute("disabled", "true");
     findPlansBtn.setAttribute("disabled", "true");
     detectRegionBtn.setAttribute("disabled", "true");
     addModeBtn.setAttribute("disabled", "true");
@@ -1199,6 +1218,10 @@ document.addEventListener("DOMContentLoaded", () => {
   fitBtn.addEventListener("click", () => {
     fitToView();
     updateStatus("View fitted to page.");
+  });
+
+  backendSelect.addEventListener("change", () => {
+    updateStatus(`Detector set to ${getDetectorLabel()}.`);
   });
 
   findPlansBtn.addEventListener("click", () => {
@@ -1326,13 +1349,15 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     const runLocalDetection = (selectedRegion) => {
-      showLoader("Local Detection", "Detecting paired wall/window linework inside the selected plan...");
-      updateStatus("Running local window detection on selected plan region...", true);
+      const backend = getDetectorBackend();
+      const detectorLabel = getDetectorLabel();
+      showLoader("Detection", `Running ${detectorLabel} inside the selected plan...`);
+      updateStatus(`Running ${detectorLabel} on selected plan region...`, true);
 
       return fetch(`/api/projects/${activeProjectId}/pages/${activePageNum}/detect-local-region`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ region: selectedRegion, replace: true })
+        body: JSON.stringify({ region: selectedRegion, replace: true, backend })
       })
       .then(res => {
         if (!res.ok) {
@@ -1345,11 +1370,15 @@ document.addEventListener("DOMContentLoaded", () => {
       })
       .then(data => {
         console.log("[DEBUG] Local detection succeeded. Response:", data);
-        windows = data.new_windows || [];
+        windows = data.windows || data.new_windows || [];
         activeBoxIndex = null;
+        if (activePageObj) {
+          activePageObj.windows = JSON.parse(JSON.stringify(windows));
+        }
         drawCanvas();
         hideLoader();
-        updateStatus(`Local detection added ${data.new_windows?.length ?? 0} windows.`);
+        const actualLabel = getDetectorLabel(data.backend || backend);
+        updateStatus(`${actualLabel} added ${data.new_windows?.length ?? 0} windows. Total now ${data.total_windows}.`);
       })
       .catch(err => {
         console.error("[ERROR] Local detection failed:", err);

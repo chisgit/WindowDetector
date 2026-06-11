@@ -394,6 +394,14 @@ body {
 .control-group {
   display: flex;
   gap: 0.75rem;
+  align-items: center;
+}
+
+.backend-select {
+  width: 190px;
+  min-width: 160px;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.85rem;
 }
 
 .canvas-wrapper {

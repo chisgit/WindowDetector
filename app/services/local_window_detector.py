@@ -290,6 +290,27 @@ def _extract_template_edges(gray: np.ndarray, box: list[int]) -> np.ndarray | No
     return edges
 
 
+def _compute_iou(box_a: list[int], box_b: list[int]) -> float:
+    iy1 = max(box_a[0], box_b[0])
+    ix1 = max(box_a[1], box_b[1])
+    iy2 = min(box_a[2], box_b[2])
+    ix2 = min(box_a[3], box_b[3])
+    inter = max(0, iy2 - iy1) * max(0, ix2 - ix1)
+    area_a = max(0, box_a[2] - box_a[0]) * max(0, box_a[3] - box_a[1])
+    area_b = max(0, box_b[2] - box_b[0]) * max(0, box_b[3] - box_b[1])
+    union = area_a + area_b - inter
+    return inter / union if union > 0 else 0.0
+
+
+def _filter_self_matches(candidates: list[list[int]], templates: list[list[int]], iou_threshold: float = 0.7) -> list[list[int]]:
+    filtered: list[list[int]] = []
+    for candidate in candidates:
+        if any(_compute_iou(candidate, templ) >= iou_threshold for templ in templates):
+            continue
+        filtered.append(candidate)
+    return filtered
+
+
 def _collect_template_matches(
     result: np.ndarray,
     tpl_w: int,
@@ -338,7 +359,7 @@ def _find_similar_windows_by_template(
     image: Image.Image,
     templates: list[list[int]],
     region: list[int] | None = None,
-    match_threshold: float = 0.62,
+    match_threshold: float = 0.58,
 ) -> list[list[int]]:
     if not templates:
         return []
@@ -356,22 +377,26 @@ def _find_similar_windows_by_template(
         offset_y = 0
         offset_x = 0
 
-    search_edges = cv2.Canny(search_arr, 50, 150, apertureSize=3)
     candidates: list[list[int]] = []
 
     for box in templates:
-        tpl_edges = _extract_template_edges(gray_full, box)
-        if tpl_edges is None:
+        ymin, xmin, ymax, xmax = [int(v) for v in box]
+        if ymin >= ymax or xmin >= xmax:
             continue
 
-        for scale in (0.9, 0.96, 1.0, 1.04, 1.1):
-            tpl_h = max(12, int(round(tpl_edges.shape[0] * scale)))
-            tpl_w = max(12, int(round(tpl_edges.shape[1] * scale)))
-            if tpl_h >= search_edges.shape[0] or tpl_w >= search_edges.shape[1]:
+        tpl = gray_full[ymin:ymax, xmin:xmax]
+        if tpl.size == 0 or tpl.shape[0] < 16 or tpl.shape[1] < 16:
+            continue
+
+        # Direct raster template matching is more reliable for repeated symbols.
+        for scale in (0.8, 0.9, 0.96, 1.0, 1.05, 1.1, 1.2):
+            tpl_h = max(16, int(round(tpl.shape[0] * scale)))
+            tpl_w = max(16, int(round(tpl.shape[1] * scale)))
+            if tpl_h >= search_arr.shape[0] or tpl_w >= search_arr.shape[1]:
                 continue
 
-            scaled_tpl = cv2.resize(tpl_edges, (tpl_w, tpl_h), interpolation=cv2.INTER_AREA)
-            result = cv2.matchTemplate(search_edges, scaled_tpl, cv2.TM_CCOEFF_NORMED)
+            scaled_tpl = cv2.resize(tpl, (tpl_w, tpl_h), interpolation=cv2.INTER_AREA)
+            result = cv2.matchTemplate(search_arr, scaled_tpl, cv2.TM_CCOEFF_NORMED)
             candidates.extend(_collect_template_matches(
                 result,
                 tpl_w,
@@ -380,17 +405,19 @@ def _find_similar_windows_by_template(
                 offset_y,
                 score_threshold=match_threshold,
             ))
-
-            if len(candidates) > 120:
+            if len(candidates) > 80:
                 break
-        if len(candidates) > 120:
+        if len(candidates) > 80:
             break
 
     if not candidates:
         return []
 
-    # Keep the strongest distinct matches only.
-    return _dedupe_boxes(candidates, iou_threshold=0.25)
+    filtered = _filter_self_matches(candidates, templates)
+    if not filtered:
+        return []
+
+    return _dedupe_boxes(filtered, iou_threshold=0.25)
 
 
 def detect_windows_locally(
@@ -504,13 +531,17 @@ def detect_windows_locally(
                 template_boxes,
                 region=region,
             )
+            combined_boxes = template_boxes.copy()
             if similar_boxes:
-                windows = []
-                for idx, box in enumerate(similar_boxes, start=1):
-                    windows.append({
-                        "label": f"W-{idx:02d}",
-                        "box_px": box,
-                    })
-                return windows
+                combined_boxes.extend(similar_boxes)
+            combined_boxes = _dedupe_boxes(combined_boxes, iou_threshold=0.25)
+
+            windows = []
+            for idx, box in enumerate(combined_boxes, start=1):
+                windows.append({
+                    "label": f"W-{idx:02d}",
+                    "box_px": box,
+                })
+            return windows
 
     return windows

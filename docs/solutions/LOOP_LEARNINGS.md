@@ -95,3 +95,23 @@ Remaining errors (next targets):
   windows (tol=5 0.847->0.830, tol=2 0.647->0.632) WITHOUT removing the target FPs (they
   don't pass through that loop). Net negative -> reverted. Lesson: scope the trim to the
   path that produces the over-extension; don't blanket-apply geometry edits to good boxes.
+- Iter-5 (REVERTED): scoped `trim_thin_cap_to_window_span` to the two_rail_recovery output
+  in recover_compact_horizontal_cap_windows. Did NOT remove the target FPs and regressed
+  tol=5 (0.847->0.830). Root cause: a window->wall->door span is two-railed along its WHOLE
+  width (the two wall lines mimic two rails), so the two-rail/hollow-middle test cannot
+  distinguish window from wall. NEXT: these two_rail FPs (H205@y780, H160@y4801, H191@y2579)
+  need a MULLION/PANE-TICK discriminator -- a real multi-span window has internal vertical
+  mullion ticks at pane boundaries; the wall/door gap between a window and a door has none.
+  Trim the two-rail span to the run bounded by mullion ticks.
+
+## Remaining targets after Iter 4 (macro@10=0.885, FP6/FN7), hardest-last
+- two_rail_recovery FP spans (H205,H160,H191): need mullion-tick discriminator (see Iter-5).
+- thin-wall vertical MISSES x4563 V@4259/V@4381, x2553 stacked-2nd V@4402: NEW recovery path
+  for vertical caps on thin single-line exterior walls (current wall-band path needs a thick
+  band). Additive -> watch for new FPs across plans.
+- GH1 two-pane y2240 x928: detected left pane only; needs horizontal two-pane merge for this
+  geometry (panes present but not merged by refine_horizontal_two_pane_from_raw here).
+- vertical drift V@2022 x3566 (cap above, box placed ~29px low): recovery in
+  recover_compact_vertical_service_caps places box too low; trim pad too small to snap up.
+- bay/alcove window Vdrift x2734: FP on wall corner + missed recessed bay window (different).
+- dimension-line-crossed horizontal miss H@4057 x4198 (CLAUDE.md dimension-line rule).

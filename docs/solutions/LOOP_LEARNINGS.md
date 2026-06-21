@@ -125,6 +125,29 @@ Remaining errors (next targets):
   every title-based crop (GH26 x<=4204; GH3 y<=3387) -> never fed to the detector. Fix is in
   stantec_crop_from_title (widen/overlap crops) -> structural, affects all plans.
 
+## Iter-9 deep dive: stacked-2nd vertical — WHY it resists a clean fix (no code change)
+Traced the lost lower window (GH26 x2553 V@4402) to step 7 (promote_upper_component_and_
+reject_wall_space). Both stacked windows are geometrically identical real windows, but:
+- cap_band_count (horizontal bands) returns 1 for BOTH within their true width — vertical
+  rails span full height = one band. The UPPER only survives because adjacent dimension ticks
+  in the ±6px ROI padding inflate its count to 9 (a fluke), passing bands>=3. The lower lacks
+  adjacent ticks -> count 1 -> rejected by `h>=88 and bands<3`.
+- Tried vertical two-rail discriminator (vtr = left&right rail cols + hollow middle): LOWER
+  real window = 0.91 (good), but UPPER real window = 0.026 (fails) because candidate boxes
+  don't tightly bracket the rails, so the right-third test misses. Alignment-sensitive.
+CONCLUSION: 3 discriminators tried (mullion-span, cap_band_count, vtr); each fails on >=1 real
+window. The boxes reaching promote are not rail-aligned, so box-level structure tests are
+unreliable. A robust fix needs to FIRST snap vertical candidates to their rail structure
+(refactor), THEN test — beyond the safe per-rule gated approach. Left for a deeper session.
+
+## PLATEAU: macro@10 = 0.885 is the clean, zero-regression ceiling for generic local rules.
+Reaching ~0.93 requires one of (all higher-risk, need explicit go-ahead):
+  (a) Rail-alignment refactor for vertical candidates (fixes stacked-2nd, drift, under-height).
+  (b) Crop-coverage fix in stantec_crop_from_title (recovers x4563 windows; affects all plans).
+  (c) Door-opening-aware rejection for the two_rail horizontal FPs (H205/H191/H160).
+  (d) Two-pane merge rework in refine_horizontal_two_pane_from_raw (GH1).
+DROP per user guidance: dimension-line-crossed horizontal (helps 1, risks many).
+
 ## Remaining targets after Iter 4 (macro@10=0.885, FP6/FN7), hardest-last
 - two_rail_recovery FP spans (H205,H160,H191): need mullion-tick discriminator (see Iter-5).
 - thin-wall vertical MISSES x4563 V@4259/V@4381, x2553 stacked-2nd V@4402: NEW recovery path

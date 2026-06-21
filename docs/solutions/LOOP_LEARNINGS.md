@@ -151,6 +151,20 @@ correct fix is to RAIL-SNAP vertical candidates at generation/trim time (trim_ca
 vertical branch), THEN the downstream tests are reliable. That is a refactor of a function run on
 ALL verticals = real regression risk = needs a dedicated, well-gated session.
 
+## Iter-11 (REVERTED to tag loop-checkpoint-0.885): the rail-align refactor
+Made the coherent refactor: trust wall-band-validated verticals and relax the 3 coupled gates
+that reject tall narrow rail-windows -- (1) L350 height ceiling 125->175, (2) trim L595
+band-count rejection skipped when 'vertical_wall_band' in source, (3) promote cap_band_count
+rejection skipped likewise. Gate result: macro@10 0.885 -> 0.811 (-0.074); GH3 BROKE 1.0->0.867;
+pred 57->61 (+4 FP across plans); tol2 0.647->0.558.
+DEFINITIVE CONCLUSION: the 3 gates are NOT redundant. wall_band's vertical candidate list
+genuinely contains doorway / wall-space FPs that those gates correctly remove. The SAME gates
+also reject ~1-2 real tall-narrow windows, but window-vs-door is not separable at this signal
+level (mullion-span, vtr, cap_band_count, and rail-snap ALL fail on >=1 real window). Reverted
+to tag. The last mile (0.885 -> 0.98) needs a fundamentally better signal, not another local
+rule: e.g. higher-DPI render to expose cap-tick geometry, threading exact cap y-positions
+through a redesigned Candidate, or a small learned classifier on cap crops.
+
 ## PLATEAU: macro@10 = 0.885 is the clean, zero-regression ceiling for generic local rules.
 Reaching ~0.93 requires one of (all higher-risk, need explicit go-ahead):
   (a) Rail-alignment refactor for vertical candidates (fixes stacked-2nd, drift, under-height).

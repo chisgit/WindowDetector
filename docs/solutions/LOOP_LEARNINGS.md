@@ -104,6 +104,27 @@ Remaining errors (next targets):
   mullion ticks at pane boundaries; the wall/door gap between a window and a door has none.
   Trim the two-rail span to the run bounded by mullion ticks.
 
+## Iter-6/7/8 attempts (all REVERTED — drift recorded)
+- Iter-6 mullion-span discriminator for two_rail FPs: drift -0.014 macro@10, REGRESSED 1 real
+  window (H81@y3732x3621 -> FN) and removed 0 of the 3 target FPs. Door frames / wall piers
+  are vertical strokes = false stiles (wall not rejected); some real windows lack a detectable
+  mid-gap stile (false rejection). Signal not separable -> dropped per "helps few/hurts" rule.
+- Iter-7 lower expand guard 90->72 (to merge GH1 single pane into two-pane): NO-OP (0 change).
+  expand_horizontal_to_matching_pane_run's internal >=3-pane-stile / pane_w / density checks
+  do not fire for this window, so the guard was never the blocker. Reverted (no benefit).
+
+## Deeper diagnoses (for whoever resumes)
+- GH1 two-pane (H79 vs H158, src two_rail_recovery): only the left 79px pane is detected; the
+  two-pane MERGE never happens. expand internals don't find the neighbour pane run. Needs work
+  inside refine_horizontal_two_pane_from_raw / has_two_horizontal_panes for this geometry.
+- Stacked-2nd vertical (GH26 x2553 V@4402, 155px): FILTERING miss, NOT detection. Raw HAS it
+  (derived_from_vertical_wall_band+pane_merge, x376 y1975 w14 h156 in GH26-crop coords) but
+  stantec_wall_band_windows drops it while keeping its identical twin above (V@3827, fixed in
+  Iter4). Recover by understanding why wall_band filters one of two identical stacked caps.
+- Thin-wall verticals x4563 (V@4259, V@4381): CROP-COVERAGE miss. (4563,4259) lies OUTSIDE
+  every title-based crop (GH26 x<=4204; GH3 y<=3387) -> never fed to the detector. Fix is in
+  stantec_crop_from_title (widen/overlap crops) -> structural, affects all plans.
+
 ## Remaining targets after Iter 4 (macro@10=0.885, FP6/FN7), hardest-last
 - two_rail_recovery FP spans (H205,H160,H191): need mullion-tick discriminator (see Iter-5).
 - thin-wall vertical MISSES x4563 V@4259/V@4381, x2553 stacked-2nd V@4402: NEW recovery path

@@ -845,11 +845,18 @@ def split_long_vertical_raw_to_upper_caps(crop:np.ndarray, raw:list[Candidate], 
             cand=Candidate(int(r.x),int(r.y),int(r.w),int(upper_h),'vertical',r.source+'+split_stacked_upper',r.score,r.exterior_side)
             left_near=density(bw,cand.x-120,cand.y-25,cand.x-8,cand.y+cand.h+25)
             right_near=density(bw,cand.x+cand.w+8,cand.y-25,cand.x+cand.w+120,cand.y+cand.h+25)
+            local=density(bw,cand.x-20,cand.y-20,cand.x+cand.w+20,cand.y+cand.h+20)
+            if local < 0.12:
+                continue
             if min(left_near,right_near) > 0.08 and max(left_near,right_near) > 0.16:
                 continue
             if cand.exterior_side == 'left' and left_near > 0.05:
                 continue
             if cand.exterior_side == 'right' and right_near > 0.05:
+                continue
+            if cand.exterior_side == 'left' and right_near > 0.16:
+                continue
+            if cand.exterior_side == 'right' and left_near > 0.16:
                 continue
             if any(rect_iou(cand,e)>0.08 or (abs(cand.cx-e.cx)<28 and abs(cand.cy-e.cy)<35) for e in existing+recovered):
                 continue
@@ -946,16 +953,28 @@ def recover_compact_vertical_service_caps(crop:np.ndarray, raw:list[Candidate], 
                 cand_h=int(max(y1+h1,y2+h2)-cand_y)
                 if cand_h < 65:
                     continue
-                # Use the tighter cap stroke when one side is widened by an
-                # appliance/fixture edge; otherwise center on the wall axis.
-                narrow=(x1,y1,w1,h1) if w1 <= w2 else (x2,y2,w2,h2)
-                if narrow[2] <= 34:
-                    cand_x=int(narrow[0])
-                    cand_w=int(narrow[2])
+                normalized=_normalize_vertical_service_candidate(
+                    bw,
+                    walls,
+                    (wx,wy,ww,wh),
+                    cand_y,
+                    cand_h,
+                    'vertical_service_cap_recovery',
+                    1.0,
+                )
+                if normalized is not None:
+                    cand=normalized
                 else:
-                    cand_w=20
-                    cand_x=int(round(axis-cand_w/2))
-                cand=Candidate(cand_x,cand_y,cand_w,cand_h,'vertical','vertical_service_cap_recovery',1.0,'unknown')
+                    # Use the tighter cap stroke when one side is widened by an
+                    # appliance/fixture edge; otherwise center on the wall axis.
+                    narrow=(x1,y1,w1,h1) if w1 <= w2 else (x2,y2,w2,h2)
+                    if narrow[2] <= 34:
+                        cand_x=int(narrow[0])
+                        cand_w=int(narrow[2])
+                    else:
+                        cand_w=20
+                        cand_x=int(round(axis-cand_w/2))
+                    cand=Candidate(cand_x,cand_y,cand_w,cand_h,'vertical','vertical_service_cap_recovery',1.0,'unknown')
                 if not (12 <= cand.w <= 34 and 65 <= cand.h <= 105):
                     continue
                 H,W=bw.shape[:2]
@@ -1324,6 +1343,56 @@ def trim_horizontal_to_pane_evidence(crop:np.ndarray, c:Candidate, text_mask:np.
     return Candidate(int(nx1), int(c.y), int(nw), int(c.h), c.orientation, c.source+'+pane_evidence_trim', c.score, c.exterior_side)
 
 
+def trim_thin_cap_to_window_span(crop:np.ndarray, c:Candidate, text_mask:np.ndarray|None=None)->Candidate:
+    """Trim a generic interior thin horizontal cap to the contiguous span that
+    carries the two-rail window signature (rail ink at top and bottom with a
+    hollow middle). The cap-detection morphology can merge the real cap with an
+    adjacent solid wall pier or wall run into one long component; this drops the
+    trailing solid-fill (pier) and empty-wall columns so wall space is not
+    counted as window. Generic: uses only the cap's local ink profile, no
+    coordinates. A cap that is already two-rail across its full width is returned
+    unchanged, so correctly-sized caps are never shortened."""
+    if c.orientation != 'horizontal' or c.w < 60:
+        return c
+    gray=cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    bw=cv2.threshold(gray,245,255,cv2.THRESH_BINARY_INV)[1]
+    if text_mask is not None:
+        bw=cv2.bitwise_and(bw, cv2.bitwise_not(text_mask))
+    H,W=bw.shape[:2]
+    pad=3
+    y0=max(0,c.y-pad); y1=min(H,c.y+c.h+pad)
+    x0=max(0,c.x); x1=min(W,c.x+c.w)
+    roi=bw[y0:y1, x0:x1]
+    if roi.size==0:
+        return c
+    rh=roi.shape[0]
+    t=max(1,rh//3)
+    midh=max(1,rh-2*t)
+    top=roi[:t,:].sum(axis=0)/255.0/t
+    bot=roi[rh-t:,:].sum(axis=0)/255.0/t
+    mid=roi[t:rh-t,:].sum(axis=0)/255.0/midh if rh-2*t>0 else np.zeros(roi.shape[1])
+    # window column: rail present top & bottom, middle hollow (not a solid pier)
+    win=(top>=0.25)&(bot>=0.25)&(mid<=0.6)
+    idx=np.where(win)[0]
+    if len(idx)==0:
+        return c
+    # Bridge short gaps (a mullion between panes of one window is only a few px
+    # wide) but not wide gaps (a solid pier or wall run), so a two/three-pane
+    # window stays one span while pier/wall tails are still dropped.
+    runs=[]; s=p=int(idx[0])
+    for v0 in idx[1:]:
+        v=int(v0)
+        if v>p+14:
+            runs.append((s,p)); s=v
+        p=v
+    runs.append((s,p))
+    a,b=max(runs,key=lambda ab:ab[1]-ab[0])
+    span=b-a+1
+    if span < 45 or span >= c.w-6:
+        return c
+    return Candidate(int(c.x+a),c.y,int(span),c.h,c.orientation,c.source+'+two_rail_span_trim',c.score,c.exterior_side)
+
+
 def _is_duplicate_candidate(candidate:Candidate, existing:list[Candidate], center_tol_x:int=35, center_tol_y:int=14, iou_threshold:float=0.08)->bool:
     for other in existing:
         if candidate.orientation != other.orientation:
@@ -1421,15 +1490,23 @@ def recover_compact_horizontal_cap_windows(crop:np.ndarray, raw:list[Candidate],
         if text_mask is not None and density(text_mask,cand.x-4,cand.y-4,cand.x+cand.w+4,cand.y+cand.h+4) > 0.02:
             continue
         two_rail_cap=has_two_rail_horizontal_cap(crop,cand,text_mask)
+        row_count=horizontal_row_band_count(crop,cand,text_mask)
+        pane_segments=horizontal_pane_segments_from_ink(crop,cand,text_mask)
+        strong_single_pane=row_count >= 3 and bool(pane_segments)
+        if two_rail_cap and density(hor,cand.x,cand.y-4,cand.x+cand.w,cand.y+cand.h+4) < 0.30 and not strong_single_pane:
+            continue
         if not two_rail_cap:
-            if horizontal_row_band_count(crop,cand,text_mask) < 3:
+            if row_count < 3:
                 continue
-            if not horizontal_pane_segments_from_ink(crop,cand,text_mask):
+            if not pane_segments:
                 continue
         if _near_vertical_raw_door_jamb(cand,raw):
             continue
         if _has_horizontal_door_jamb_context(crop,cand,text_mask):
-            continue
+            above_ctx=density(bw,cand.x,cand.y-90,cand.x+cand.w,cand.y-10)
+            below_ctx=density(bw,cand.x,cand.y+cand.h+10,cand.x+cand.w,cand.y+cand.h+90)
+            if not (strong_single_pane and min(above_ctx,below_ctx) < 0.03 and max(above_ctx,below_ctx) < 0.18):
+                continue
 
         if two_rail_cap:
             t=Candidate(cand.x,cand.y,cand.w,cand.h,'horizontal',cand.source+'+two_rail_component',cand.score,cand.exterior_side)
@@ -1467,7 +1544,7 @@ def recover_compact_horizontal_cap_windows(crop:np.ndarray, raw:list[Candidate],
             gap=xs[a_idx+1]-xs[a_idx]
             if not (55 <= gap <= 100):
                 continue
-            cand=Candidate(int(round(xs[a_idx]-2)), max(0,y-7), int(round(gap+4)), 18, 'horizontal', 'horizontal_component_cap_pair_recovery', 1.0, 'unknown')
+            cand=Candidate(int(round(xs[a_idx]-5)), max(0,y+1), int(round(gap+10)), max(14,min(18,h)), 'horizontal', 'horizontal_component_cap_pair_recovery', 1.0, 'unknown')
             if text_mask is not None and density(text_mask,cand.x-4,cand.y-4,cand.x+cand.w+4,cand.y+cand.h+4) > 0.02:
                 continue
             if _near_vertical_raw_door_jamb(cand,raw) or _has_horizontal_door_jamb_context(crop,cand,text_mask):
@@ -1577,7 +1654,8 @@ def refine_horizontal_two_pane_from_raw(crop:np.ndarray, filtered:list[Candidate
                     if density(vmask,c.x,c.y-4,c.x+c.w,c.y+c.h+4) > 0.35 and not has_two_rail_horizontal_cap(crop,c,text_mask):
                         continue
                     norm_h=max(16,c.h)
-                    pane_trimmed.append(Candidate(c.x,c.y,c.w,norm_h,c.orientation,c.source+'+thin_cap_preserve',c.score,c.exterior_side))
+                    preserved=Candidate(c.x,c.y,c.w,norm_h,c.orientation,c.source+'+thin_cap_preserve',c.score,c.exterior_side)
+                    pane_trimmed.append(trim_thin_cap_to_window_span(crop, preserved, text_mask))
                 continue
             t=trim_horizontal_to_pane_evidence(crop,c,text_mask)
             if t is not None:

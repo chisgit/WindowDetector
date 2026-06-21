@@ -1,0 +1,84 @@
+{
+  "task": "window_detection_accuracy_loop",
+  "goal": "Reach >=98% F1 per plan on training group homes by improving the deterministic A/B Stantec detector with GENERIC (no-hardcoding) code rules, then produce GH4/GH5 detections for manual UI correction.",
+  "hard_rules": [
+    "NO HARDCODING: no page-, room-, group-home-, label-, or coordinate-specific constants/overrides. Every fix must be a reusable geometric/CV rule.",
+    "Edit ONLY app/services/stantec_detector_core.py (single source of truth; it is what the UI runs). CLI copy is a stale subset - ignore, optionally mirror at end.",
+    "Doors, door swings, wall gaps, labels, dimensions, fixtures, and the space between a door and a window cap are NOT windows.",
+    "When a dimension/measurement line crosses a window symbol, recover the underlying cap/pane evidence; do not require uninterrupted strokes.",
+    "Keep detector modular: new symbol families must not break existing ones.",
+    "After any code change run `graphify update .`."
+  ],
+  "detector": {
+    "file": "app/services/stantec_detector_core.py",
+    "entry_points": [
+      "detect_stantec_plan_regions(pdf_path, page_num, page_image_path, dpi)",
+      "detect_stantec_windows_for_page(...)",
+      "detect_stantec_windows_in_region(...)",
+      "run_stantec(pdf, pages, outdir, dpi, group_homes, save_raw)"
+    ],
+    "method": "deterministic-stantec v28 (geometric: wall-band -> cap/sash stroke -> pane evidence -> door/wall-space rejection)"
+  },
+  "data": {
+    "pdf": "projects/7dde299f-ec42-4424-8f46-f865bfdb4a3b/original.pdf",
+    "page": 17,
+    "page_image": "projects/7dde299f-ec42-4424-8f46-f865bfdb4a3b/page_17.png",
+    "page_space_px": [9362, 6622],
+    "ground_truth": {
+      "source": "projects/7dde299f-ec42-4424-8f46-f865bfdb4a3b/correction_log.jsonl",
+      "rule": "Take the LAST page_windows_saved event; its corrected_windows is the canonical full-page GT (58 boxes, cumulative across all 4 plans). Box format box_px=[x1,y1,x2,y2] in page_space_px. Dedupe identical boxes.",
+      "assign_to_plan": "Bin each GT box into a group-home by which crop region (from detect_stantec_plan_regions) contains its center."
+    }
+  },
+  "group_homes": {
+    "train_score_set": ["GH1", "GH2", "GH3", "GH26"],
+    "inference_handoff_set": ["GH4", "GH5"],
+    "handoff_note": "For GH4/GH5: run improved detector, emit detections + overlays only. User runs+corrects via UI; no automated accuracy gate here."
+  },
+  "metric": {
+    "definition": "Length + placement match. A pred is TP vs a GT box when ALL hold:",
+    "conditions": [
+      "orientation matches (horizontal/vertical)",
+      "length match: |pred_long_side - gt_long_side| <= length_tol_px",
+      "placement match: both corners align - |pred_x1-gt_x1|<=pos_tol_px AND |pred_y1-gt_y1|<=pos_tol_px AND |pred_x2-gt_x2|<=pos_tol_px AND |pred_y2-gt_y2|<=pos_tol_px (corner check also enforces short side + exact location)"
+    ],
+    "length_tol_px": 2,
+    "pos_tol_px": 2,
+    "tolerance_note": "Start at 2 px (per user). Tunable; one GT matches at most one pred (greedy nearest by total corner offset).",
+    "score": "F1 = 2*TP / (2*TP + FP + FN), reported per plan + macro across train set",
+    "fp": "detection with no GT match (includes boxes the user deleted or relabeled Door)",
+    "fn": "GT window with no detection match",
+    "target": 0.98,
+    "escalation": "Per GH: if <target after 3 full fix+rerun cycles, lower target to 0.96, then 0.94, then -0.02 each tier; document the tier reached."
+  },
+  "loop": {
+    "per_group_home": [
+      "1. DETECT: run detector on the GH crop using page_image_path=page_17.png (GT coordinate space).",
+      "2. SCORE: compute TP/FP/FN/F1 vs that GH's GT subset using the length+placement metric.",
+      "3. DIAGNOSE: for each FP/FN, inspect the crop region; cluster errors into a named failure PATTERN (e.g. 'door-cap gap counted as window', 'dimension line splits cap', 'vertical service cap missed').",
+      "4. ROOT-CAUSE: trace pattern to the responsible function in core; design a GENERIC rule fix.",
+      "5. FIX: edit stantec_detector_core.py only.",
+      "6. RE-RUN same GH: keep change only if F1 improved.",
+      "7. REGRESSION GATE: re-run ALL train GHs; macro-F1 must not drop. If it drops, revise or revert.",
+      "8. LOG: append a learning entry; update loop_state.json."
+    ],
+    "cross_validation": "After all 4 GHs pass their tier: re-run the unified detector across GH1/2/3/26 once more; confirm macro-F1 holds with zero per-GH regression.",
+    "handoff": "Then run GH4 + GH5, save overlays for user UI correction."
+  },
+  "state_ledger": {
+    "file": "loop_state.json",
+    "fields": ["iteration", "group_home", "f1_before", "f1_after", "tp", "fp", "fn", "pattern", "fix_summary", "functions_touched", "regression_macro_f1", "status"]
+  },
+  "learnings": {
+    "file": "docs/solutions/LOOP_LEARNINGS.md",
+    "entry_format": "## <pattern-name>\\n- Symptom (FP/FN):\\n- Root cause:\\n- Generic rule applied:\\n- Function(s):\\n- Before/After F1:",
+    "split_rule": "When a learnings file exceeds 300 lines, start docs/solutions/LOOP_LEARNINGS_2.md (then _3, ...). Also drop category-specific fixes into docs/solutions/<category>/ per existing convention.",
+    "mistake_log": "After each iteration, record what was tried and failed (and why) so it is not repeated."
+  },
+  "token_discipline": [
+    "Read only the crop region and the specific function under repair, not whole files repeatedly.",
+    "Keep running state in loop_state.json + LOOP_LEARNINGS.md; do not re-derive prior findings in context.",
+    "Compress diagnoses to pattern names; cite file:line instead of pasting code."
+  ],
+  "done_definition": "All 4 train GHs at their accuracy tier (>=98% where achievable) with zero cross-validation regression, learnings + state files current, graphify updated, and GH4/GH5 detection overlays generated for manual correction."
+}

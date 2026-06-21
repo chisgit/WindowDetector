@@ -140,6 +140,17 @@ window. The boxes reaching promote are not rail-aligned, so box-level structure 
 unreliable. A robust fix needs to FIRST snap vertical candidates to their rail structure
 (refactor), THEN test — beyond the safe per-rule gated approach. Left for a deeper session.
 
+## Iter-10 (REVERTED): vertical_rail_signature as OR-acceptance in promote
+Added a vtr (left+right rail cols, hollow middle) acceptance path to promote's full-keep and
+band-count rejection. Drift: -0.025 macro@10 (0.885->0.860). Regressed GH1 x1052 (correct 82px
+window OVER-promoted to 171px via full_component_keep+vtr, grabbing wall space) and only
+half-recovered the stacked-2nd (un-rejected as a wrong-size 89px box, not full 155).
+ROOT CAUSE (confirms plateau): patching at the promote stage is too late -- candidate boxes are
+not rail-aligned, so one vtr threshold both recovers one window and over-grows another. The
+correct fix is to RAIL-SNAP vertical candidates at generation/trim time (trim_candidate_to_cap_ink
+vertical branch), THEN the downstream tests are reliable. That is a refactor of a function run on
+ALL verticals = real regression risk = needs a dedicated, well-gated session.
+
 ## PLATEAU: macro@10 = 0.885 is the clean, zero-regression ceiling for generic local rules.
 Reaching ~0.93 requires one of (all higher-risk, need explicit go-ahead):
   (a) Rail-alignment refactor for vertical candidates (fixes stacked-2nd, drift, under-height).

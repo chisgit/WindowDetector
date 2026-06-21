@@ -71,7 +71,16 @@ Before@10 macro=0.832 -> After@10 macro=0.863 (TP 48->50, FP 9->7, FN 10->8).
 @5: 0.800->0.847. @2: 0.647 (flat). Per-GH@10: GH1 0.87->0.93, GH2 0.73->0.82,
 GH3 1.0 (no regression), GH26 0.64->0.70. graphify updated.
 
-## Current status @tol=10: macro_F1=0.863, micro_F1=0.870 (TP=50 FP=7 FN=8)
+### Iter 4 — keep full-height tall vertical windows  ✅ KEPT
+Pattern: vertical under-height (GH26 x2553 V@3827: detected 91px, GT 162px).
+`promote_upper_component_and_reject_wall_space` replaced the candidate with an upper
+component capped at min(92,..) height, assuming "cap above blank wall space below". For a
+genuinely tall continuous window this truncates it. Fix: before truncating, if the full
+raw candidate has continuous cap-band evidence (cap_band_count>=4) and r.h<=175, keep its
+full height ("+full_component_keep") instead of the 92px upper pane.
+@10 macro 0.863 -> 0.885 (TP 50->51, FP 7->6, FN 8->7). @5/@2 unchanged. No regressions.
+
+## Current status @tol=10: macro_F1=0.885, micro_F1=0.887 (TP=51 FP=6 FN=7)
 Remaining errors (next targets):
 - two_rail_recovery FP spans (H205@y780, H160@y4801) — different code path (~L1425), not the
   thin-cap branch. (Iter-3 attempt to trim ALL horizontals removed -> see mistake log.)

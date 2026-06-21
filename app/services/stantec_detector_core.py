@@ -1071,6 +1071,14 @@ def promote_upper_component_and_reject_wall_space(crop:np.ndarray, boxes:list[Ca
             if c.exterior_side != 'left': continue
             if abs(r.cx-c.cx) > 14: continue
             if r.y < c.y-30 and r.y+r.h >= c.y+c.h-10 and r.h > c.h*1.35:
+                # If the full-height raw candidate is itself a continuous cap (many
+                # cap bands along a tall window), it is one tall window, not a cap
+                # above blank wall space -> keep its full height instead of cutting
+                # it down to a single upper pane. Generic, bounded to window height.
+                full = Candidate(int(r.x), int(r.y), int(r.w), int(r.h), c.orientation, c.source+'+full_component_keep', c.score, c.exterior_side)
+                if r.h <= 175 and cap_band_count(full) >= 4:
+                    replacement=full
+                    break
                 upper_h = min(92, max(70, c.h))
                 upper = Candidate(int(r.x), int(r.y), int(r.w), int(upper_h), c.orientation, c.source+'+upper_component_promote', c.score, c.exterior_side)
                 if cap_band_count(upper) >= 2:

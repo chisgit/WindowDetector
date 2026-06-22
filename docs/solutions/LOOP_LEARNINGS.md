@@ -165,6 +165,18 @@ to tag. The last mile (0.885 -> 0.98) needs a fundamentally better signal, not a
 rule: e.g. higher-DPI render to expose cap-tick geometry, threading exact cap y-positions
 through a redesigned Candidate, or a small learned classifier on cap crops.
 
+## Option 1 (higher-DPI) VERDICT: not worth the scale-aware refactor
+- Supersampling (render 400 -> downscale to 200 reference): NO gain (@10 identical 0.887;
+  @5/@2 slightly worse from edge shift). So cleaner input is not the bottleneck.
+- True 400-DPI crops DO show clearer mullion-tick structure visually, BUT a high-DPI tick
+  detector still FAILS to separate window from wall/door: FP over-extensions (door swings,
+  wall junctions, dimension lines) register as MORE tick-groups than a real two-pane window
+  (FP_H205 groups=5, FP_H191=3, real 2-pane=4). Hand-crafted features get fooled at any DPI.
+- Conclusion: resolution is not the limiter; the subtle window-vs-door distinction is. The
+  detector's pixel constants are 200-DPI-tuned, so a true-400 run also needs a large scale-aware
+  refactor for uncertain gain. NOT WORTH IT. The real lever is a learned classifier (Option 3)
+  trained on corrected crops across MANY drawings (the UI correction workflow generates that data).
+
 ## PLATEAU: macro@10 = 0.885 is the clean, zero-regression ceiling for generic local rules.
 Reaching ~0.93 requires one of (all higher-risk, need explicit go-ahead):
   (a) Rail-alignment refactor for vertical candidates (fixes stacked-2nd, drift, under-height).

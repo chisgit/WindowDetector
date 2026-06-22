@@ -177,6 +177,17 @@ through a redesigned Candidate, or a small learned classifier on cap crops.
   refactor for uncertain gain. NOT WORTH IT. The real lever is a learned classifier (Option 3)
   trained on corrected crops across MANY drawings (the UI correction workflow generates that data).
 
+## Option 2 (cap-geometry plumbing) VERDICT: not worth it — precision is already near-perfect
+Measured corner-offset of the 51 matched TP windows vs hand-drawn GT:
+  BEFORE any snap: median=0.0px, mean=1.3px, 37/51 within <=2px, 49/51 within <=5px.
+  AFTER snapping boxes to cap-ink bbox: WORSE (median 5px) -- ink bbox grabs wall lines.
+So the detector's box geometry is already essentially optimal (median 0px!). The tol2 score
+(0.647) gap is NOT detector drift; it is hand-drawn-GT noise -- the ~14 windows that miss tol2
+are only 3-5px off (human drawing precision on a 9362px render). Geometry plumbing has no
+headroom. REFRAME: the detector is geometrically excellent + high recall; the ENTIRE remaining
+error is a binary window-vs-door discrimination on ~6-7 candidate regions (the tol10 ceiling).
+That is the only real lever -> Option 3 (learned classifier on candidate crops).
+
 ## PLATEAU: macro@10 = 0.885 is the clean, zero-regression ceiling for generic local rules.
 Reaching ~0.93 requires one of (all higher-risk, need explicit go-ahead):
   (a) Rail-alignment refactor for vertical candidates (fixes stacked-2nd, drift, under-height).

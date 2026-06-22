@@ -1,0 +1,211 @@
+[
+  {
+    "label": "W-01",
+    "box_px": [
+      663,
+      6851,
+      677,
+      7008
+    ],
+    "orientation": "horizontal",
+    "source": "derived_from_horizontal_wall_band+pane_merge+cap_ink_trim+restore_raw_two_pane+pane_evidence_trim"
+  },
+  {
+    "label": "W-02",
+    "box_px": [
+      663,
+      7134,
+      677,
+      7210
+    ],
+    "orientation": "horizontal",
+    "source": "derived_from_horizontal_wall_band+pane_merge+cap_ink_trim+pane_evidence_trim"
+  },
+  {
+    "label": "W-03",
+    "box_px": [
+      663,
+      7208,
+      679,
+      7287
+    ],
+    "orientation": "horizontal",
+    "source": "derived_from_horizontal_wall_band+two_rail_recovery"
+  },
+  {
+    "label": "W-04",
+    "box_px": [
+      1221,
+      6789,
+      1319,
+      6805
+    ],
+    "orientation": "vertical",
+    "source": "derived_from_vertical_wall_band+cap_ink_trim"
+  },
+  {
+    "label": "W-05",
+    "box_px": [
+      1386,
+      7376,
+      1468,
+      7401
+    ],
+    "orientation": "vertical",
+    "source": "derived_from_vertical_wall_band+cap_ink_trim"
+  },
+  {
+    "label": "W-06",
+    "box_px": [
+      1427,
+      6717,
+      1443,
+      6806
+    ],
+    "orientation": "horizontal",
+    "source": "horizontal_component_cap_recovery+two_rail_component"
+  },
+  {
+    "label": "W-07",
+    "box_px": [
+      1466,
+      6789,
+      1553,
+      6805
+    ],
+    "orientation": "vertical",
+    "source": "derived_from_vertical_wall_band+cap_ink_trim"
+  },
+  {
+    "label": "W-08",
+    "box_px": [
+      1667,
+      7376,
+      1749,
+      7401
+    ],
+    "orientation": "vertical",
+    "source": "derived_from_vertical_wall_band+cap_ink_trim"
+  },
+  {
+    "label": "W-09",
+    "box_px": [
+      1684,
+      6758,
+      1766,
+      6772
+    ],
+    "orientation": "vertical",
+    "source": "derived_from_vertical_wall_band"
+  },
+  {
+    "label": "W-10",
+    "box_px": [
+      1817,
+      7239,
+      1833,
+      7315
+    ],
+    "orientation": "horizontal",
+    "source": "horizontal_component_cap_recovery+two_rail_component"
+  },
+  {
+    "label": "W-11",
+    "box_px": [
+      1817,
+      7305,
+      1833,
+      7381
+    ],
+    "orientation": "horizontal",
+    "source": "horizontal_component_cap_recovery+two_rail_component"
+  },
+  {
+    "label": "W-12",
+    "box_px": [
+      1837,
+      6621,
+      1852,
+      6705
+    ],
+    "orientation": "horizontal",
+    "source": "derived_from_horizontal_wall_band+pane_evidence_trim"
+  },
+  {
+    "label": "W-13",
+    "box_px": [
+      1936,
+      6403,
+      2017,
+      6426
+    ],
+    "orientation": "vertical",
+    "source": "derived_from_vertical_wall_band"
+  },
+  {
+    "label": "W-14",
+    "box_px": [
+      2141,
+      7376,
+      2223,
+      7401
+    ],
+    "orientation": "vertical",
+    "source": "derived_from_vertical_wall_band+cap_ink_trim"
+  },
+  {
+    "label": "W-15",
+    "box_px": [
+      2212,
+      6403,
+      2294,
+      6426
+    ],
+    "orientation": "vertical",
+    "source": "derived_from_vertical_wall_band"
+  },
+  {
+    "label": "W-16",
+    "box_px": [
+      2368,
+      7376,
+      2446,
+      7401
+    ],
+    "orientation": "vertical",
+    "source": "derived_from_vertical_wall_band"
+  },
+  {
+    "label": "W-17",
+    "box_px": [
+      2421,
+      6403,
+      2502,
+      6426
+    ],
+    "orientation": "vertical",
+    "source": "derived_from_vertical_wall_band"
+  },
+  {
+    "label": "W-18",
+    "box_px": [
+      2502,
+      6710,
+      2517,
+      6792
+    ],
+    "orientation": "horizontal",
+    "source": "derived_from_horizontal_wall_band+two_rail_recovery"
+  },
+  {
+    "label": "W-19",
+    "box_px": [
+      2502,
+      7042,
+      2517,
+      7123
+    ],
+    "orientation": "horizontal",
+    "source": "derived_from_horizontal_wall_band+two_rail_recovery"
+  }
+]

@@ -1,0 +1,332 @@
+[
+  {
+    "label": "W-01",
+    "box_px": [
+      489,
+      6058,
+      504,
+      6137
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-02",
+    "box_px": [
+      489,
+      6264,
+      504,
+      6417
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-03",
+    "box_px": [
+      741,
+      5910,
+      829,
+      5928
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-04",
+    "box_px": [
+      742,
+      5949,
+      829,
+      5980
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-05",
+    "box_px": [
+      885,
+      5910,
+      967,
+      5928
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-06",
+    "box_px": [
+      936,
+      5941,
+      1031,
+      5959
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-07",
+    "box_px": [
+      1125,
+      6094,
+      1141,
+      6201
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-08",
+    "box_px": [
+      1135,
+      5910,
+      1211,
+      5928
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-09",
+    "box_px": [
+      1209,
+      6457,
+      1288,
+      6496
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-10",
+    "box_px": [
+      1213,
+      6504,
+      1291,
+      6530
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-11",
+    "box_px": [
+      1389,
+      5949,
+      1405,
+      6027
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-12",
+    "box_px": [
+      1389,
+      6079,
+      1405,
+      6175
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-13",
+    "box_px": [
+      1397,
+      6294,
+      1413,
+      6376
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-14",
+    "box_px": [
+      1494,
+      6505,
+      1572,
+      6530
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-15",
+    "box_px": [
+      1663,
+      5747,
+      1679,
+      5840
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-16",
+    "box_px": [
+      1695,
+      5569,
+      1711,
+      5650
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-17",
+    "box_px": [
+      1762,
+      5533,
+      1844,
+      5556
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-18",
+    "box_px": [
+      1960,
+      5571,
+      1976,
+      5655
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-19",
+    "box_px": [
+      1968,
+      6505,
+      2046,
+      6530
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-20",
+    "box_px": [
+      2039,
+      5533,
+      2121,
+      5556
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-21",
+    "box_px": [
+      2099,
+      6392,
+      2115,
+      6476
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-22",
+    "box_px": [
+      2134,
+      6392,
+      2150,
+      6476
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-23",
+    "box_px": [
+      2165,
+      5571,
+      2181,
+      5654
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-24",
+    "box_px": [
+      2165,
+      5714,
+      2181,
+      5798
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-25",
+    "box_px": [
+      2195,
+      6505,
+      2272,
+      6530
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-26",
+    "box_px": [
+      2207,
+      5575,
+      2223,
+      5657
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-27",
+    "box_px": [
+      2209,
+      5887,
+      2225,
+      6026
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-28",
+    "box_px": [
+      2209,
+      6058,
+      2225,
+      6209
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-29",
+    "box_px": [
+      2248,
+      5533,
+      2329,
+      5556
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-30",
+    "box_px": [
+      2330,
+      5828,
+      2344,
+      5991
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-31",
+    "box_px": [
+      2330,
+      6167,
+      2344,
+      6257
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-32",
+    "box_px": [
+      2430,
+      5575,
+      2446,
+      5657
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-33",
+    "box_px": [
+      2430,
+      5716,
+      2446,
+      5798
+    ],
+    "orientation": "horizontal"
+  }
+]

@@ -1,0 +1,222 @@
+[
+  {
+    "label": "W-01",
+    "box_px": [
+      453,
+      4350,
+      468,
+      4507
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-02",
+    "box_px": [
+      453,
+      4501,
+      468,
+      4631
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-03",
+    "box_px": [
+      453,
+      4633,
+      468,
+      4786
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-04",
+    "box_px": [
+      783,
+      4303,
+      799,
+      4394
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-05",
+    "box_px": [
+      837,
+      4279,
+      919,
+      4297
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-06",
+    "box_px": [
+      1001,
+      4261,
+      1112,
+      4304
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-07",
+    "box_px": [
+      1175,
+      4868,
+      1259,
+      4900
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-08",
+    "box_px": [
+      1185,
+      4833,
+      1246,
+      4863
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-09",
+    "box_px": [
+      1257,
+      4288,
+      1339,
+      4304
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-10",
+    "box_px": [
+      1305,
+      4261,
+      1370,
+      4296
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-11",
+    "box_px": [
+      1458,
+      4875,
+      1536,
+      4900
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-12",
+    "box_px": [
+      1628,
+      4120,
+      1643,
+      4204
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-13",
+    "box_px": [
+      1726,
+      3902,
+      1808,
+      3925
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-14",
+    "box_px": [
+      1932,
+      4875,
+      2010,
+      4900
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-15",
+    "box_px": [
+      2003,
+      3902,
+      2085,
+      3925
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-16",
+    "box_px": [
+      2159,
+      4875,
+      2237,
+      4900
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-17",
+    "box_px": [
+      2212,
+      3902,
+      2293,
+      3925
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-18",
+    "box_px": [
+      2219,
+      4260,
+      2235,
+      4398
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-19",
+    "box_px": [
+      2219,
+      4431,
+      2235,
+      4582
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-20",
+    "box_px": [
+      2294,
+      4209,
+      2308,
+      4291
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-21",
+    "box_px": [
+      2294,
+      4290,
+      2314,
+      4395
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-22",
+    "box_px": [
+      2294,
+      4541,
+      2308,
+      4623
+    ],
+    "orientation": "horizontal"
+  }
+]

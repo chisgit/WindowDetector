@@ -1,0 +1,152 @@
+[
+  {
+    "label": "W-01",
+    "box_px": [
+      570,
+      915,
+      586,
+      1011
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-02",
+    "box_px": [
+      657,
+      613,
+      739,
+      640
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-03",
+    "box_px": [
+      786,
+      1548,
+      868,
+      1566
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-04",
+    "box_px": [
+      921,
+      613,
+      1003,
+      640
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-05",
+    "box_px": [
+      1042,
+      1548,
+      1123,
+      1566
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-06",
+    "box_px": [
+      1137,
+      613,
+      1219,
+      640
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-07",
+    "box_px": [
+      1417,
+      684,
+      1433,
+      775
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-08",
+    "box_px": [
+      1497,
+      1501,
+      1579,
+      1519
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-09",
+    "box_px": [
+      1519,
+      841,
+      1600,
+      859
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-10",
+    "box_px": [
+      1765,
+      1449,
+      1853,
+      1484
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-11",
+    "box_px": [
+      1777,
+      888,
+      1860,
+      906
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-12",
+    "box_px": [
+      1803,
+      1505,
+      1892,
+      1523
+    ],
+    "orientation": "vertical"
+  },
+  {
+    "label": "W-13",
+    "box_px": [
+      2029,
+      716,
+      2045,
+      877
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-14",
+    "box_px": [
+      2367,
+      1289,
+      2390,
+      1354
+    ],
+    "orientation": "horizontal"
+  },
+  {
+    "label": "W-15",
+    "box_px": [
+      2372,
+      797,
+      2390,
+      958
+    ],
+    "orientation": "horizontal"
+  }
+]

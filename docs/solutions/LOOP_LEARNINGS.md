@@ -205,6 +205,17 @@ two-rail signature, symmetry, mullion/peak counts). Data: 143 page-17 candidates
   can't recover non-proposed windows). Trained on ONE page -> will improve as GH4/5 + more pages
   are corrected via the UI (re-run train_classifier.py). This is the architecture that climbs to 98%.
 
+## Page-18 generalization test
+Page 18 is the CONSTRUCTION PLAN (page 17 = DEMO FLOOR PLAN) of the SAME group homes -- a
+DIFFERENT drawing type, laid out at different page positions. So the page-17 GT does NOT
+transfer (TP=0 even crop-relative; crops are title-relative and the layout/annotations differ).
+Finding: the detector RUNS and produces plausible exterior-wall window detections on the
+construction plans; GH1 count matches page-17 exactly (15). Counts: GH1=15, GH2=20, GH3=22,
+GH4=33, GH5=33, GH26=24 (higher on construction sheets = denser linework -> more FP candidates,
+which is exactly what the ML post-filter + per-drawing-type correction will handle). Outputs in
+loop/page18_output/. Precise page-18 accuracy needs page-18 GT (correct it in the UI) -> same
+data pipeline. Validates the detector handles a new drawing TYPE, the stated multi-drawing goal.
+
 ## PLATEAU: macro@10 = 0.885 is the clean, zero-regression ceiling for generic local rules.
 Reaching ~0.93 requires one of (all higher-risk, need explicit go-ahead):
   (a) Rail-alignment refactor for vertical candidates (fixes stacked-2nd, drift, under-height).

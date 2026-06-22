@@ -13,7 +13,7 @@ No AI calls, no ML models, no OCR model, no training.
 """
 from __future__ import annotations
 
-import argparse, csv, re, zipfile
+import argparse, csv, os, re, zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -1958,6 +1958,19 @@ def detect_stantec_windows_for_page(
             window=_candidate_to_app_window(candidate, offset_x=x0, offset_y=y0, idx=idx, label_prefix=f'GH{gh}-W')
             window['group_home']=str(gh)
             all_windows.append(window)
+    # Optional ML post-filter (Option 3): rejects candidates the trained classifier
+    # is confident are NOT windows. Opt-in via env WINDOW_ML_FILTER=1; no-op otherwise
+    # or if the model/sklearn is unavailable, so the deterministic baseline is unchanged.
+    if os.environ.get('WINDOW_ML_FILTER') == '1':
+        try:
+            import sys as _sys
+            _root=Path(__file__).resolve().parent.parent.parent
+            if str(_root) not in _sys.path: _sys.path.insert(0,str(_root))
+            from loop.ml_filter import filter_windows
+            gray=cv2.cvtColor(page_img, cv2.COLOR_BGR2GRAY)
+            all_windows=filter_windows(gray, all_windows)
+        except Exception:
+            pass
     return sorted(all_windows, key=lambda w:(w['box_px'][0], w['box_px'][1]))
 
 

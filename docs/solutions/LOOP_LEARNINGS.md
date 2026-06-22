@@ -188,6 +188,23 @@ headroom. REFRAME: the detector is geometrically excellent + high recall; the EN
 error is a binary window-vs-door discrimination on ~6-7 candidate regions (the tol10 ceiling).
 That is the only real lever -> Option 3 (learned classifier on candidate crops).
 
+## Option 3 (ML candidate classifier) — WORKS, +0.018 cross-validated, opt-in
+RandomForest on engineered features of detector candidate crops (geometry, ink-band stats,
+two-rail signature, symmetry, mullion/peak counts). Data: 143 page-17 candidates (55 windows /
+88 negatives, harvested = final preds + raw wall-band). Labeled window iff matches GT @tol15.
+- Leave-one-group-home-out CV (honest generalization across plans): as a POST-FILTER rejecting
+  only low-confidence candidates (P(window) < 0.18, high-recall point keeps 55/55 windows),
+  F1@10 0.887 -> 0.903 (removes 2-3 of 6 FPs, keeps all TPs).
+- High-recall-proposer + classifier architecture (use raw pool as proposals): WORSE (~0.73) --
+  raw FPs too numerous/unseparable at this data scale. So post-filter on FINAL output is the design.
+- Integration: opt-in via env WINDOW_ML_FILTER=1 (default OFF -> deterministic baseline 0.885
+  unchanged; verified). ON: 0.907 macro / 0.911 micro on page 17 (slightly optimistic, model
+  trained on this page). Files: loop/ml_classifier.py (features+CV), loop/train_classifier.py
+  (saves loop/window_clf.joblib), loop/ml_filter.py (inference). Needs sklearn+joblib (no-op if absent).
+- LIMITS: only ~half the FPs are separable, and FNs (7 missed windows) are untouched (post-filter
+  can't recover non-proposed windows). Trained on ONE page -> will improve as GH4/5 + more pages
+  are corrected via the UI (re-run train_classifier.py). This is the architecture that climbs to 98%.
+
 ## PLATEAU: macro@10 = 0.885 is the clean, zero-regression ceiling for generic local rules.
 Reaching ~0.93 requires one of (all higher-risk, need explicit go-ahead):
   (a) Rail-alignment refactor for vertical candidates (fixes stacked-2nd, drift, under-height).

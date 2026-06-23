@@ -11,7 +11,14 @@ from dotenv import load_dotenv
 
 # Import services
 from app.services.pdf_processor import render_pdf_to_images, classify_pages_locally
-from app.services.gemini_service import detect_windows, detect_windows_in_region
+try:
+    from app.services.gemini_service import detect_windows, detect_windows_in_region
+except Exception as _gemini_err:  # google-genai not installed: local deterministic model still works
+    print(f"[WARN] Gemini service unavailable ({_gemini_err}); AI detection disabled, local deterministic model only.")
+    def detect_windows(*a, **k):
+        raise HTTPException(status_code=503, detail="Gemini AI detection not available (google-genai not installed).")
+    def detect_windows_in_region(*a, **k):
+        raise HTTPException(status_code=503, detail="Gemini AI detection not available (google-genai not installed).")
 from app.services.plan_region_detector import detect_floor_plan_regions
 from app.services.local_window_detector import detect_windows_locally
 from app.services.stantec_detector_core import detect_stantec_plan_regions, detect_stantec_windows_in_region, is_stantec_pdf

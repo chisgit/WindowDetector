@@ -21,8 +21,17 @@ PDF = PROJECT / "original.pdf"
 PAGE_IMG = PROJECT / "page_17.png"
 PAGE = 17
 CORR_LOG = PROJECT / "correction_log.jsonl"
-TRAIN_GHS = ["1", "2", "3", "26"]
+TRAIN_GHS = ["1", "2", "3", "4", "26"]
 OUTDIR = ROOT / "loop" / "out"
+
+# Labels the user types onto a box in the correction UI to mark it NOT a window
+# (kept as boxes so we keep them as hard negatives, not ground-truth windows).
+REJECT_LABEL_KEYS = ("not window", "no caps", "no break", "looks like window", "not a window")
+
+
+def _is_reject_label(label):
+    s = (label or "").lower()
+    return any(k in s for k in REJECT_LABEL_KEYS)
 
 
 # ---------- geometry helpers (box = [ymin, xmin, ymax, xmax]) ----------
@@ -72,12 +81,31 @@ def load_ground_truth():
         raise RuntimeError("no page_windows_saved event for page 17")
     seen, boxes = set(), []
     for w in last["corrected_windows"]:
+        if _is_reject_label(w.get("label")):
+            continue  # user-marked NOT-a-window -> excluded from GT (see load_hard_negatives)
         b = tuple(int(v) for v in w["box_px"])
         if b in seen:
             continue
         seen.add(b)
         boxes.append(list(b))
     return boxes
+
+
+def load_hard_negatives():
+    """Boxes the user relabelled in the UI to explain they are NOT windows
+    (e.g. 'no caps', 'no break in the wall'). Gold negatives for the classifier."""
+    last = None
+    for line in CORR_LOG.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        ev = json.loads(line)
+        if ev.get("event") == "page_windows_saved" and ev.get("page_number") == PAGE:
+            last = ev
+    if last is None:
+        return []
+    return [list(int(v) for v in w["box_px"])
+            for w in last["corrected_windows"] if _is_reject_label(w.get("label"))]
 
 
 def assign_to_gh(boxes, regions):

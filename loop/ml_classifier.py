@@ -25,7 +25,7 @@ import loop.harness as H  # noqa
 P = ROOT / "projects" / "7dde299f-ec42-4424-8f46-f865bfdb4a3b"
 PDF = P / "original.pdf"
 IMG = P / "page_17.png"
-TRAIN_GHS = ["1", "2", "3", "26"]
+TRAIN_GHS = ["1", "2", "3", "4", "26"]
 MATCH_TOL = 15  # a candidate is a window if within this of a GT box
 
 
@@ -111,11 +111,41 @@ def features(page_gray, b):
     sym_lr = 1.0 - abs(left - right) / (left + right + 1e-6)
     sym_tb = 1.0 - abs(top - bot) / (top + bot + 1e-6)
 
+    # USER RULE 1 — end caps: a window's two rails are closed at BOTH ends by a
+    # perpendicular cap stroke (the I-beam ⊏⊐). A door sill / wall line lacks them.
+    # cap_score = weaker of the two end strokes, normalised to the short side.
+    if vert:  # tall: caps are horizontal strokes at top/bottom
+        rsum = bw.sum(axis=1); e = max(2, rh // 8)
+        cap_score = min(rsum[:e].max(), rsum[-e:].max()) / float(rw + 1e-6)
+    else:     # wide: caps are vertical strokes at left/right
+        csum = bw.sum(axis=0); e = max(2, rw // 8)
+        cap_score = min(csum[:e].max(), csum[-e:].max()) / float(rh + 1e-6)
+    cap_score = float(min(cap_score, 1.5))
+
+    # USER RULE 2 — break in the wall: a window sits in a GAP in the thick wall band.
+    # If a thick SOLID wall (contiguous dark run, not a thin rail) passes through the
+    # candidate, there is no break -> not a window. Measured with extra context.
+    cm = 26
+    if vert:
+        ctx = (page_gray[max(0, y0 - 4):min(H_, y1 + 4), max(0, x0 - cm):min(W_, x1 + cm)] < 175)
+        line = ctx.mean(axis=0) if ctx.size else np.zeros(1)  # per column
+    else:
+        ctx = (page_gray[max(0, y0 - cm):min(H_, y1 + cm), max(0, x0 - 4):min(W_, x1 + 4)] < 175)
+        line = ctx.mean(axis=1) if ctx.size else np.zeros(1)  # per row
+    run = mx = 0
+    for v in line:
+        if v >= 0.9:
+            run += 1; mx = max(mx, run)
+        else:
+            run = 0
+    wall_thick_run = float(mx)  # px of solid wall crossing the candidate (0 for a real window gap)
+
     return [
         float(long_side), float(short_side), float(short_side) / float(long_side + 1e-6),
         float(vert), dens, top, midr, bot, left, midc, right,
         float(row_peaks), float(col_peaks), rail, sym_lr, sym_tb,
         float(midr), float(midc),  # interior density (door leaf fills interior)
+        cap_score, wall_thick_run,  # user-derived: end caps + wall-break
     ]
 
 

@@ -177,6 +177,26 @@ through a redesigned Candidate, or a small learned classifier on cap crops.
   refactor for uncertain gain. NOT WORTH IT. The real lever is a learned classifier (Option 3)
   trained on corrected crops across MANY drawings (the UI correction workflow generates that data).
 
+## GH4 corrections — caps + wall-break as ML FEATURES (not hard rules)
+User corrected GH4 in the UI, relabelling 4 detections with the REASON they are not windows:
+"no caps", "No break in the wall" (x2), "Not window". (Harness now treats any reject-labelled
+box as a hard NEGATIVE, not GT: see _is_reject_label / load_hard_negatives.) GH4 detector recall
+is perfect (15/15); the only error is those 4 FPs.
+- Tried both reasons as DETERMINISTIC hard filters first (regression measured, per project rule):
+  cap-presence rule removed 4/66 real TPs; thick-wall rule removed 5/66 TPs. Same lesson as the
+  earlier plateau: the 4 FPs sit in local contexts almost identical to real windows, so no single
+  pixel-rule separates them without killing real windows. NOT integrated.
+- Instead encoded the user's two rules as CONTINUOUS FEATURES in ml_classifier.features():
+  cap_score (weaker of the two end-cap strokes / short side) and wall_thick_run (px of contiguous
+  solid wall crossing the candidate, measured with 26px context). The RF then weights them with the
+  other 18 features. LOGO CV: 3 of 4 FPs drop below all real windows (P 0.19/0.33/0.40 vs window
+  min 0.52); FP2 (door threshold, user: "looks like a window but no caps") stays 0.65 — genuinely
+  ambiguous. Operating point P<0.30 keeps 70/70 windows in CV.
+- Result @10 (GT now 73, incl GH4): deterministic 0.889 -> +ML 0.919 (in-sample re-run; CV 0.904).
+  GH4 0.882->0.968 (4 FP -> 1), GH1/GH3 unchanged (no regression). FP total 9 -> 4. Model retrained
+  on the GH4-augmented data; reject_threshold 0.30. Lesson: turn user pixel-rules into FEATURES, not
+  filters, when the classes overlap — safe (no TP loss) and lets evidence combine.
+
 ## Door-swing disqualification (user insight) — KEPT, deterministic, on by default
 A door = wall OPENING (gap) + straight leaf + swing ARC (curve); windows are axis-aligned only
 (no arcs). is_door_swing_candidate(): subtract H/V strokes -> residual holds leaf+arc; circle-fit

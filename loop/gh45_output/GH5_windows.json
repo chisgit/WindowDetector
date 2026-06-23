@@ -7,8 +7,7 @@
       3876,
       1262
     ],
-    "orientation": "horizontal",
-    "source": "derived_from_horizontal_wall_band+pane_merge+cap_ink_trim+pane_evidence_trim"
+    "orientation": "horizontal"
   },
   {
     "label": "W-02",
@@ -18,8 +17,7 @@
       3876,
       1317
     ],
-    "orientation": "horizontal",
-    "source": "derived_from_horizontal_wall_band+compact_cap_recovery"
+    "orientation": "horizontal"
   },
   {
     "label": "W-03",
@@ -29,8 +27,7 @@
       3873,
       1513
     ],
-    "orientation": "horizontal",
-    "source": "derived_from_horizontal_wall_band+two_rail_recovery"
+    "orientation": "horizontal"
   },
   {
     "label": "W-04",
@@ -40,8 +37,7 @@
       3873,
       1593
     ],
-    "orientation": "horizontal",
-    "source": "derived_from_horizontal_wall_band+pane_evidence_trim"
+    "orientation": "horizontal"
   },
   {
     "label": "W-05",
@@ -51,8 +47,7 @@
       3956,
       900
     ],
-    "orientation": "vertical",
-    "source": "derived_from_vertical_wall_band+cap_ink_trim"
+    "orientation": "vertical"
   },
   {
     "label": "W-06",
@@ -62,8 +57,7 @@
       3887,
       1168
     ],
-    "orientation": "horizontal",
-    "source": "horizontal_component_cap_recovery+pane_evidence_trim"
+    "orientation": "horizontal"
   },
   {
     "label": "W-07",
@@ -73,8 +67,7 @@
       4008,
       1870
     ],
-    "orientation": "vertical",
-    "source": "derived_from_vertical_wall_band+cap_ink_trim"
+    "orientation": "vertical"
   },
   {
     "label": "W-08",
@@ -84,8 +77,7 @@
       4158,
       900
     ],
-    "orientation": "vertical",
-    "source": "derived_from_vertical_wall_band+cap_ink_trim"
+    "orientation": "vertical"
   },
   {
     "label": "W-09",
@@ -95,8 +87,7 @@
       4234,
       1870
     ],
-    "orientation": "vertical",
-    "source": "derived_from_vertical_wall_band+cap_ink_trim"
+    "orientation": "vertical"
   },
   {
     "label": "W-10",
@@ -106,8 +97,7 @@
       4439,
       900
     ],
-    "orientation": "vertical",
-    "source": "derived_from_vertical_wall_band+cap_ink_trim"
+    "orientation": "vertical"
   },
   {
     "label": "W-11",
@@ -117,8 +107,7 @@
       4537,
       1186
     ],
-    "orientation": "horizontal",
-    "source": "horizontal_component_cap_recovery+two_rail_component"
+    "orientation": "horizontal"
   },
   {
     "label": "W-12",
@@ -128,8 +117,7 @@
       4697,
       1255
     ],
-    "orientation": "vertical",
-    "source": "derived_from_vertical_wall_band+cap_ink_trim+upper_component_promote"
+    "orientation": "vertical"
   },
   {
     "label": "W-13",
@@ -139,8 +127,7 @@
       4703,
       1870
     ],
-    "orientation": "vertical",
-    "source": "derived_from_vertical_wall_band+cap_ink_trim"
+    "orientation": "vertical"
   },
   {
     "label": "W-14",
@@ -150,8 +137,7 @@
       4914,
       1824
     ],
-    "orientation": "vertical",
-    "source": "vertical_service_cap_recovery"
+    "orientation": "vertical"
   },
   {
     "label": "W-15",
@@ -161,8 +147,7 @@
       4904,
       1286
     ],
-    "orientation": "vertical",
-    "source": "derived_from_vertical_wall_band+pane_merge+split_upper_cap"
+    "orientation": "vertical"
   },
   {
     "label": "W-16",
@@ -172,8 +157,7 @@
       4985,
       1870
     ],
-    "orientation": "vertical",
-    "source": "derived_from_vertical_wall_band+cap_ink_trim"
+    "orientation": "vertical"
   },
   {
     "label": "W-17",
@@ -183,8 +167,7 @@
       5232,
       1870
     ],
-    "orientation": "vertical",
-    "source": "derived_from_vertical_wall_band+cap_ink_trim"
+    "orientation": "vertical"
   },
   {
     "label": "W-18",
@@ -194,8 +177,7 @@
       5302,
       1785
     ],
-    "orientation": "horizontal",
-    "source": "horizontal_component_cap_recovery+two_rail_component"
+    "orientation": "horizontal"
   },
   {
     "label": "W-19",
@@ -205,8 +187,7 @@
       5714,
       1773
     ],
-    "orientation": "horizontal",
-    "source": "raw_adjacent_two_pane_merge+pane_evidence_trim"
+    "orientation": "horizontal"
   },
   {
     "label": "W-20",
@@ -216,7 +197,6 @@
       5714,
       1490
     ],
-    "orientation": "horizontal",
-    "source": "derived_from_horizontal_wall_band+pane_merge+cap_ink_trim+restore_raw_two_pane+pane_evidence_trim"
+    "orientation": "horizontal"
   }
 ]

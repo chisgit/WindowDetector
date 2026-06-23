@@ -177,6 +177,21 @@ through a redesigned Candidate, or a small learned classifier on cap crops.
   refactor for uncertain gain. NOT WORTH IT. The real lever is a learned classifier (Option 3)
   trained on corrected crops across MANY drawings (the UI correction workflow generates that data).
 
+## Door-swing disqualification (user insight) — KEPT, deterministic, on by default
+A door = wall OPENING (gap) + straight leaf + swing ARC (curve); windows are axis-aligned only
+(no arcs). is_door_swing_candidate(): subtract H/V strokes -> residual holds leaf+arc; circle-fit
+each residual component; accept as door arc when resid/radius<0.025, radius 40-115px (door-leaf
+length), arc span>~57deg. Arc centre = hinge; if it falls inside an OVER-EXTENDED candidate
+(long side >165px, longer than any real window) the box spans a door opening -> drop it.
+- Why the over-extension guard: windows and doors are frequently ADJACENT on the same wall, so a
+  naive "arc within pad" disqualifier false-fired on 7/51 real windows (a door hinge sits right at
+  a neighbouring window). Requiring the candidate to be over-long protects compact real windows;
+  it then targets only door-spanning over-extensions (e.g. H205). Verified 0/51 TP removed.
+- Result @10: 0.885 -> 0.895 (FP 6->5), GH3 stays 1.0, no regressions. Stacks with ML: door+ML = 0.907.
+- Rejected approaches (logged): HoughCircles (24 false circles on a hatched window, missed doors);
+  high-DPI tick counting (door swings/junctions mimic ticks). Circle-fit on axis-subtracted residual
+  is the robust arc detector. On by default; disable with env WINDOW_DOOR_FILTER=0.
+
 ## Option 2 (cap-geometry plumbing) VERDICT: not worth it — precision is already near-perfect
 Measured corner-offset of the 51 matched TP windows vs hand-drawn GT:
   BEFORE any snap: median=0.0px, mean=1.3px, 37/51 within <=2px, 49/51 within <=5px.

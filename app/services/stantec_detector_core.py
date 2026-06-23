@@ -1924,6 +1924,54 @@ def detect_stantec_windows_in_region(
     return [_candidate_to_app_window(c, offset_x=xmin, offset_y=ymin, idx=i) for i,c in enumerate(candidates,1)]
 
 
+def is_door_swing_candidate(page_gray:np.ndarray, box:list[int], pad:int=95, margin:int=14, min_long:int=165)->bool:
+    """A door reads as: a wall OPENING (gap) + a straight leaf line + a swing ARC
+    (curve). Windows are drawn with axis-aligned strokes only (rails/sash/ticks),
+    never arcs. So detect a door-swing arc and disqualify a candidate that spans
+    the opening it pivots from.
+
+    Method (generic, no coordinates): subtract axis-aligned (H/V) strokes -> the
+    residual holds the diagonal leaf + curved swing; fit a circle to each residual
+    component and accept it as a door arc when the points lie on the circle
+    (residual/radius < 0.025), the radius is a door-leaf length (40-115px), and it
+    spans a real arc (> ~57deg). The arc centre is the hinge; if it falls inside an
+    OVER-EXTENDED candidate (long side > min_long, i.e. longer than any real window)
+    the candidate spans a door opening -> not a window. The over-extension guard
+    protects compact real windows that merely sit next to a door."""
+    y0,x0,y1,x1=box
+    if max(x1-x0, y1-y0) <= min_long:
+        return False
+    H_,W_=page_gray.shape[:2]
+    ry0,rx0=max(0,y0-pad),max(0,x0-pad)
+    roi=page_gray[ry0:min(H_,y1+pad), rx0:min(W_,x1+pad)]
+    if roi.size==0:
+        return False
+    bw=cv2.threshold(roi,200,255,cv2.THRESH_BINARY_INV)[1]
+    hk=cv2.morphologyEx(bw,cv2.MORPH_OPEN,cv2.getStructuringElement(cv2.MORPH_RECT,(13,1)))
+    vk=cv2.morphologyEx(bw,cv2.MORPH_OPEN,cv2.getStructuringElement(cv2.MORPH_RECT,(1,13)))
+    resid=cv2.bitwise_and(bw,cv2.bitwise_not(cv2.dilate(cv2.bitwise_or(hk,vk),np.ones((3,3),np.uint8))))
+    n,lab,stats,_=cv2.connectedComponentsWithStats(resid,8)
+    for i in range(1,n):
+        xx,yy,ww,hh,area=stats[i]
+        if area<55 or ww<28 or hh<28 or ww>260 or hh>260:
+            continue
+        ys,xs=np.where(lab==i)
+        xf=xs.astype(np.float64); yf=ys.astype(np.float64)
+        A=np.c_[2*xf,2*yf,np.ones(len(xf))]; bb=xf**2+yf**2
+        sol,*_=np.linalg.lstsq(A,bb,rcond=None); cx,cy=sol[0],sol[1]
+        r=float(np.sqrt(max(1e-6,sol[2]+cx**2+cy**2)))
+        if not (40<=r<=115):
+            continue
+        if float(np.std(np.sqrt((xf-cx)**2+(yf-cy)**2)-r))/max(r,1.0) > 0.025:
+            continue
+        if float(np.ptp(np.unwrap(np.sort(np.arctan2(yf-cy,xf-cx))))) < 1.0:
+            continue
+        hx,hy=rx0+cx,ry0+cy
+        if (x0-margin)<=hx<=(x1+margin) and (y0-margin)<=hy<=(y1+margin):
+            return True
+    return False
+
+
 def detect_stantec_windows_for_page(
     pdf_path:str|Path,
     page_num:int,
@@ -1958,6 +2006,15 @@ def detect_stantec_windows_for_page(
             window=_candidate_to_app_window(candidate, offset_x=x0, offset_y=y0, idx=idx, label_prefix=f'GH{gh}-W')
             window['group_home']=str(gh)
             all_windows.append(window)
+    # Door-swing disqualification (deterministic, on by default): a door is a wall
+    # opening + leaf + swing arc, not a window. Drop over-extended candidates whose
+    # box spans a door opening (arc hinge inside). Disable with WINDOW_DOOR_FILTER=0.
+    if os.environ.get('WINDOW_DOOR_FILTER') != '0':
+        try:
+            gray_full=cv2.cvtColor(page_img, cv2.COLOR_BGR2GRAY)
+            all_windows=[w for w in all_windows if not is_door_swing_candidate(gray_full, w['box_px'])]
+        except Exception:
+            pass
     # Optional ML post-filter (Option 3): rejects candidates the trained classifier
     # is confident are NOT windows. Opt-in via env WINDOW_ML_FILTER=1; no-op otherwise
     # or if the model/sklearn is unavailable, so the deterministic baseline is unchanged.

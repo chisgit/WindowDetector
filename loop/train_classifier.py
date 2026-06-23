@@ -27,9 +27,9 @@ def main():
     clf = RandomForestClassifier(n_estimators=400, max_depth=6,
                                  class_weight="balanced", random_state=0)
     clf.fit(X, y)
-    joblib.dump({"model": clf, "reject_threshold": 0.30}, MODEL)
+    joblib.dump({"model": clf, "reject_threshold": 0.46}, MODEL)
     print(f"trained on {len(y)} candidates ({int(y.sum())} windows); saved {MODEL}")
-    print("operating point: reject a detector candidate only if P(window) < 0.30")
+    print("operating point: reject a detector candidate only if P(window) < 0.46")
 
 
 if __name__ == "__main__":

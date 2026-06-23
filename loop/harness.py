@@ -26,7 +26,8 @@ OUTDIR = ROOT / "loop" / "out"
 
 # Labels the user types onto a box in the correction UI to mark it NOT a window
 # (kept as boxes so we keep them as hard negatives, not ground-truth windows).
-REJECT_LABEL_KEYS = ("not window", "no caps", "no break", "looks like window", "not a window")
+REJECT_LABEL_KEYS = ("not window", "no caps", "no break", "looks like window", "not a window",
+                     "door", "stair")
 
 
 def _is_reject_label(label):

@@ -285,3 +285,22 @@ DROP per user guidance: dimension-line-crossed horizontal (helps 1, risks many).
   recover_compact_vertical_service_caps places box too low; trim pad too small to snap up.
 - bay/alcove window Vdrift x2734: FP on wall corner + missed recessed bay window (different).
 - dimension-line-crossed horizontal miss H@4057 x4198 (CLAUDE.md dimension-line rule).
+
+## Deterministic rules investigation (caps / in-wall / crisscross) — DON'T separate alone
+User asked for clear deterministic, tweakable rules (caps always at both ends; window must be in a
+wall break; crisscross/fixtures rejected) applied "rules first, then ML". Tested each as a hard
+filter on BOTH the hand-drawn correction boxes AND the detector's tight output boxes (TP vs FP):
+- cap_strength (min end-cap run / short side): TP range 0.11..1.0, FP range 0.06..1.2 — an FP scores
+  HIGHER than every real window. At zero-TP-loss catches ~1-2 FP.
+- in_wall (wall ink coverage beyond both ends): TP 0.07.., FP 0.0..0.75 — heavy overlap.
+- diag_ratio (non-axis-aligned interior ink; crisscross): TP up to 0.20 (hatching bleed), FP up to
+  0.21 — overlap; page-17 FPs aren't crisscrosses.
+CONCLUSION: every single hand-crafted signal OVERLAPS — non-windows in these plans routinely have
+cap-like strokes and wall-like context; some real windows lack a clean cap/wall in pixels (loose GT,
+corners). No deterministic hard rule separates window-vs-not at zero regression. The rules are only
+valid IN COMBINATION (a human checks caps AND rails AND in-wall AND size together) — which is exactly
+the ML classifier. Adding in_wall+diag as EXTRA features also regressed CV (thr0.30 FP 9->11,
+0.908->0.898) — they're noisy, so reverted. Kept: cap_score + wall_thick_run features only.
+State: page-17 (6 plans, GT=86) macro F1@10 0.926 / micro 0.936, FP=5, FN=6 (ML thr 0.30).
+Lever to higher accuracy = more corrected pages (data), not more pixel rules. Door-swing stays the
+one deterministic reject that works (geometry of the arc), but only for over-extended door-spans.

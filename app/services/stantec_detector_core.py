@@ -1412,6 +1412,46 @@ def _is_duplicate_candidate(candidate:Candidate, existing:list[Candidate], cente
     return False
 
 
+def _contains_narrower_same_row_horizontal(candidate:Candidate, existing:list[Candidate], min_width_gain:float=1.20)->bool:
+    if candidate.orientation != 'horizontal':
+        return False
+    for other in existing:
+        if other.orientation != 'horizontal':
+            continue
+        if abs(candidate.cy-other.cy) > 10:
+            continue
+        if candidate.w < other.w*min_width_gain:
+            continue
+        overlap=max(0,min(candidate.x+candidate.w,other.x+other.w)-max(candidate.x,other.x))
+        if overlap >= other.w*0.70 and candidate.x <= other.x+12 and candidate.x+candidate.w >= other.x+other.w-12:
+            return True
+    return False
+
+
+def _has_uncontained_same_row_horizontal_overlap(candidate:Candidate, existing:list[Candidate])->bool:
+    if candidate.orientation != 'horizontal':
+        return False
+    for other in existing:
+        if other.orientation != 'horizontal':
+            continue
+        if abs(candidate.cy-other.cy) > 10:
+            continue
+        overlap=max(0,min(candidate.x+candidate.w,other.x+other.w)-max(candidate.x,other.x))
+        if overlap < min(candidate.w,other.w)*0.35:
+            continue
+        candidate_contains_other=(
+            candidate.x <= other.x+12
+            and candidate.x+candidate.w >= other.x+other.w-12
+        )
+        other_contains_candidate=(
+            other.x <= candidate.x+12
+            and other.x+other.w >= candidate.x+candidate.w-12
+        )
+        if not candidate_contains_other and not other_contains_candidate:
+            return True
+    return False
+
+
 def _near_vertical_raw_door_jamb(candidate:Candidate, raw:list[Candidate])->bool:
     """
     Compact horizontal strokes can appear inside door openings. If a raw vertical
@@ -1565,6 +1605,51 @@ def recover_compact_horizontal_cap_windows(crop:np.ndarray, raw:list[Candidate],
     return recovered
 
 
+def recover_horizontal_multi_pane_runs(crop:np.ndarray, raw:list[Candidate], existing:list[Candidate], text_mask:np.ndarray|None=None)->list[Candidate]:
+    """Merge adjacent horizontal raw spans into one two/three-pane window.
+
+    Some long window symbols arrive as a compact single pane next to a wider
+    two-pane raw cap. If the union still has the two-rail signature, keep the
+    whole run as one window instead of leaving only the compact pane.
+    """
+    recovered:list[Candidate]=[]
+    horizontals=[r for r in raw if r.orientation == 'horizontal' and 8 <= r.h <= 28]
+    compact=[r for r in horizontals if 55 <= r.w <= 115 and has_two_rail_horizontal_cap(crop,r,text_mask)]
+    wide=[r for r in horizontals if 120 <= r.w <= 190 and has_two_rail_horizontal_cap(crop,r,text_mask)]
+
+    for a in compact:
+        for b in wide:
+            if abs(a.cy-b.cy) > 8:
+                continue
+            left,right=(a,b) if a.x <= b.x else (b,a)
+            gap=right.x-(left.x+left.w)
+            if not (-10 <= gap <= 28):
+                continue
+            nx=min(a.x,b.x)
+            ny=min(a.y,b.y)
+            nx2=max(a.x+a.w,b.x+b.w)
+            ny2=max(a.y+a.h,b.y+b.h)
+            cand=Candidate(int(nx),int(ny),int(nx2-nx),int(ny2-ny),'horizontal','raw_adjacent_multi_pane_merge',max(a.score,b.score),'below')
+            if not (190 <= cand.w <= 285 and cand.h <= 32):
+                continue
+            if text_mask is not None and density(text_mask,cand.x-4,cand.y-4,cand.x+cand.w+4,cand.y+cand.h+4) > 0.02:
+                continue
+            if horizontal_row_band_count(crop,cand,text_mask) < 2:
+                continue
+            if not has_two_rail_horizontal_cap(crop,cand,text_mask):
+                continue
+            if _near_vertical_raw_door_jamb(cand,raw):
+                continue
+            is_duplicate=_is_duplicate_candidate(cand, existing+recovered, center_tol_x=48, center_tol_y=14)
+            can_replace_narrower=(
+                _contains_narrower_same_row_horizontal(cand, existing+recovered)
+                and not _has_uncontained_same_row_horizontal_overlap(cand, existing+recovered)
+            )
+            if not is_duplicate or can_replace_narrower:
+                recovered.append(cand)
+    return recovered
+
+
 def refine_horizontal_two_pane_from_raw(crop:np.ndarray, filtered:list[Candidate], raw:list[Candidate], text_mask:np.ndarray|None=None)->list[Candidate]:
     """Generic two-pane horizontal window cleanup using raw wall-band candidates.
 
@@ -1694,6 +1779,15 @@ def refine_horizontal_two_pane_from_raw(crop:np.ndarray, filtered:list[Candidate
     # but were too short or measurement-line-interrupted for two-pane logic.
     for recovered in recover_compact_horizontal_cap_windows(crop, raw, keep, text_mask):
         if not _is_duplicate_candidate(recovered, keep):
+            keep.append(recovered)
+
+    for recovered in recover_horizontal_multi_pane_runs(crop, raw, keep, text_mask):
+        is_duplicate=_is_duplicate_candidate(recovered, keep, center_tol_x=48, center_tol_y=14)
+        can_replace_narrower=(
+            _contains_narrower_same_row_horizontal(recovered, keep)
+            and not _has_uncontained_same_row_horizontal_overlap(recovered, keep)
+        )
+        if not is_duplicate or can_replace_narrower:
             keep.append(recovered)
 
     # Remove any single-pane horizontal candidate mostly covered by a wider

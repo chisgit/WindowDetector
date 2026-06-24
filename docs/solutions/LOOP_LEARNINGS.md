@@ -251,6 +251,21 @@ which is exactly what the ML post-filter + per-drawing-type correction will hand
 loop/page18_output/. Precise page-18 accuracy needs page-18 GT (correct it in the UI) -> same
 data pipeline. Validates the detector handles a new drawing TYPE, the stated multi-drawing goal.
 
+## Page-18 GH1/GH2 correction pass -- triple-pane recovery KEPT
+Latest page-18 correction event: 2026-06-24T07:37:34Z, 39 annotations = 30 positives +
+9 hard negatives across GH1/GH2. User correction W14/GH1 showed a valid triple horizontal
+window: the detector kept only the left compact pane ([2367,1289,2390,1354]) while GT spans
+all panes ([2367,1289,2390,1532]).
+- Root cause: raw candidates already contained the compact pane plus adjacent two-pane cap, but
+  multi-pane recovery was blocked by broad door-jamb context and by duplicate suppression against
+  the narrower same-row cap.
+- Fix: recover adjacent compact+wide horizontal raw runs when the union has two-rail evidence,
+  allow it to replace contained narrower same-row candidates, and reject starts-inside overlaps
+  so GH2 partial over-merges are not introduced.
+- Page18 GH1/GH2 score @tol10: 0.7077 -> 0.7385 (TP 23->24, FP 12->11, FN 7->6).
+  The recovered GH1 triple is [2367,1289,2390,1529], within 5px of GT. Page17 harness unchanged:
+  @tol10 macro_F1=0.8755, micro_F1=0.884, pred=95(raw96), GT=86.
+
 ## PLATEAU: macro@10 = 0.885 is the clean, zero-regression ceiling for generic local rules.
 Reaching ~0.93 requires one of (all higher-risk, need explicit go-ahead):
   (a) Rail-alignment refactor for vertical candidates (fixes stacked-2nd, drift, under-height).

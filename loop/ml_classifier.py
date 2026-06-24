@@ -25,7 +25,7 @@ import loop.harness as H  # noqa
 P = ROOT / "projects" / "7dde299f-ec42-4424-8f46-f865bfdb4a3b"
 PDF = P / "original.pdf"
 IMG = P / "page_17.png"
-TRAIN_GHS = ["1", "2", "3", "4", "26"]
+TRAIN_GHS = ["1", "2", "3", "4", "5", "26"]
 MATCH_TOL = 15  # a candidate is a window if within this of a GT box
 
 

@@ -9,7 +9,7 @@ Spec: WINDOW_98_LOOP.json  (NO HARDCODING of fixes — this file only measures.)
 Run:  PYTHONPATH=. python3 loop/harness.py [--tol 2] [--overlays]
 """
 from __future__ import annotations
-import argparse, json, sys
+import argparse, json, re, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -21,18 +21,21 @@ PDF = PROJECT / "original.pdf"
 PAGE_IMG = PROJECT / "page_17.png"
 PAGE = 17
 CORR_LOG = PROJECT / "correction_log.jsonl"
-TRAIN_GHS = ["1", "2", "3", "4", "26"]
+TRAIN_GHS = ["1", "2", "3", "4", "5", "26"]
 OUTDIR = ROOT / "loop" / "out"
 
-# Labels the user types onto a box in the correction UI to mark it NOT a window
-# (kept as boxes so we keep them as hard negatives, not ground-truth windows).
-REJECT_LABEL_KEYS = ("not window", "no caps", "no break", "looks like window", "not a window",
-                     "door", "stair")
+# User convention in the correction UI: a real window keeps its auto label "W-01"
+# (optionally "GH5-W-01"); anything the user RENAMES with a descriptive reason
+# ("no caps", "door", "washer dryer", "parallel lines don't qualify"...) is a box
+# they kept only to mark it NOT a window -> we treat it as a hard negative, not GT.
+_WINDOW_LABEL_RE = re.compile(r"^\s*(gh\s*\d+\s*[-_ ]?\s*)?w[-_ ]?\d+\s*$", re.I)
 
 
 def _is_reject_label(label):
-    s = (label or "").lower()
-    return any(k in s for k in REJECT_LABEL_KEYS)
+    s = (label or "").strip()
+    if not s:
+        return False  # empty/default -> keep as a window
+    return _WINDOW_LABEL_RE.match(s) is None  # any descriptive label -> NOT a window
 
 
 # ---------- geometry helpers (box = [ymin, xmin, ymax, xmax]) ----------

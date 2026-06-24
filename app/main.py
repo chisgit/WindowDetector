@@ -29,8 +29,22 @@ load_dotenv()
 app = FastAPI(title="Interactive Floor Plan Window Detector API")
 
 # Configuration variables
-PROJECTS_DIR = os.getenv("PROJECTS_DIR", "./projects")
+# Resolve to an absolute path so image loading is independent of the process CWD.
+PROJECTS_DIR = os.path.abspath(os.getenv("PROJECTS_DIR", "./projects"))
 PDF_RENDER_DPI = int(os.getenv("PDF_RENDER_DPI", "200"))
+
+
+def _project_file_path(project_path: str, stored_name: str) -> str:
+    """
+    Build an OS-correct path to a file stored inside a project.
+
+    metadata.json may have been written on a different OS (e.g. Windows), where
+    stored names can contain backslash separators. Normalizing them here keeps
+    image loading working cross-platform instead of failing later with an opaque
+    PIL "cannot identify image file" error.
+    """
+    normalized = stored_name.replace("\\", "/")
+    return os.path.normpath(os.path.join(project_path, normalized))
 
 # Ensure projects directory exists
 os.makedirs(PROJECTS_DIR, exist_ok=True)
@@ -346,7 +360,7 @@ async def run_detection(project_id: str, page_num: int):
         print(f"[ERROR] run_detection: Page {page_num} not found in metadata.")
         raise HTTPException(status_code=404, detail=f"Page {page_num} not found in project.")
         
-    target_image_path = os.path.join(project_path, target_page["image_name"])
+    target_image_path = _project_file_path(project_path, target_page["image_name"])
     
     # 4. Compile Few-Shot History from other corrected pages in the same project.
     few_shot_history = []
@@ -419,7 +433,7 @@ async def run_plan_region_detection(project_id: str, page_num: int):
         print(f"[ERROR] run_plan_region_detection: Page {page_num} not found in metadata.")
         raise HTTPException(status_code=404, detail=f"Page {page_num} not found in project.")
 
-    target_image_path = os.path.join(project_path, target_page["image_name"])
+    target_image_path = _project_file_path(project_path, target_page["image_name"])
 
     original_pdf_path = os.path.join(project_path, "original.pdf")
 
@@ -502,7 +516,7 @@ async def run_local_region_detection(project_id: str, page_num: int, payload: De
     if xmin >= xmax or ymin >= ymax:
         raise HTTPException(status_code=400, detail="Invalid region: zero or negative area.")
 
-    target_image_path = os.path.join(project_path, target_page["image_name"])
+    target_image_path = _project_file_path(project_path, target_page["image_name"])
     original_pdf_path = os.path.join(project_path, "original.pdf")
 
     if backend == "deterministic-stantec":
@@ -510,8 +524,11 @@ async def run_local_region_detection(project_id: str, page_num: int, payload: De
             print("[WARNING] run_local_region_detection: Original PDF missing, falling back to legacy-local backend.")
             backend = "legacy-local"
         elif not is_stantec_pdf(original_pdf_path, pages=[page_num]):
-            print("[DEBUG] run_local_region_detection: PDF does not match Stantec profile, falling back to legacy-local backend.")
-            backend = "legacy-local"
+            # Intentionally do NOT fall back to legacy-local here. We run the
+            # Stantec wall-band detector on non-Stantec-profile PDFs (e.g. the
+            # Barrie set) so we can observe how the base detector generalizes to
+            # new sheet layouts / window families. See PLAN_stantec_new_window_family.md.
+            print("[DEBUG] run_local_region_detection: PDF does not match Stantec title-block profile; running Stantec detector anyway (no legacy fallback).")
 
     templates = None
     if target_page.get("user_corrected") and target_page.get("windows"):
